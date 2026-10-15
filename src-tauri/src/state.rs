@@ -12,7 +12,7 @@ use std::time::{SystemTime, UNIX_EPOCH};
 
 #[derive(Serialize, Deserialize, Clone, Debug, Default)]
 pub struct Installed {
-    /// Source kind: github | wago | wowi | tukui
+    /// Source kind: github | wago | wowi | tukui | curse
     pub source: String,
     pub source_id: String,
     pub version: String,
@@ -34,6 +34,10 @@ pub struct AppState {
     /// Consider GitHub pre-releases and Wago beta builds when checking.
     #[serde(default)]
     pub allow_prerelease: bool,
+    /// Install and update CurseForge-only addons through cfwidget and
+    /// CurseForge's file storage. Unofficial, off unless the user opts in.
+    #[serde(default)]
+    pub curse_unofficial: bool,
     /// Package keys whose updates are held back.
     #[serde(default)]
     pub pinned: BTreeSet<String>,

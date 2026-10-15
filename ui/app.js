@@ -462,10 +462,10 @@ function renderCatalog() {
   $("browse-list").innerHTML = rows.length
     ? rows
         .map((e) => {
-          const src = e.github ? `GitHub · ${e.github}` : e.wago ? "Wago" : e.wowi ? "WoWInterface" : e.tukui ? "TukUI" : "CurseForge only";
+          const src = e.github ? `GitHub · ${e.github}` : e.wago ? "Wago" : e.wowi ? "WoWInterface" : e.tukui ? "TukUI" : settings?.curse_unofficial ? "CurseForge (unofficial)" : "CurseForge only";
           const fv = e.forever === true ? `<span class="badge forever">Forever</span>` : e.forever === false ? `<span class="badge not-forever">No Forever build</span>` : "";
-          const canInstall = e.github || e.wowi || e.tukui || (e.wago && settings?.has_wago_key);
-          const needsKey = e.wago && !e.github && !e.wowi && !e.tukui && !settings?.has_wago_key;
+          const canInstall = catalogInstallable(e);
+          const needsKey = e.wago && !canInstall;
           return `<div class="item" data-id="${esc(e.id)}">
             <div class="c-name clickable" data-detail="${esc(e.id)}" title="Details">${iconTile("c", e.id, e.name)}<div class="nm-wrap"><span class="nm">${esc(e.name)}</span><span class="flags">${fv}${e.installed ? ' <span class="badge ok">installed</span>' : ""}</span><div class="sub-line" title="${esc(e.desc || "")}">${esc(e.desc || "")}</div></div></div>
             <div class="c-cat muted">${esc(e.category || "")}</div>
@@ -508,6 +508,10 @@ let detailSeq = 0;
 let detailEntry = null;
 let detailFocus = null;
 let detailPackageKey = null; // installed addon shown in the details pane
+// Mirrors pick_source in lib.rs: CurseForge only with the unofficial switch on.
+function catalogInstallable(e) {
+  return e.github || e.wowi || e.tukui || (e.wago && settings?.has_wago_key) || (e.curse && settings?.curse_unofficial);
+}
 function sourceLabel(e) {
   return e.github ? `GitHub \u00b7 ${e.github}` : e.wago ? "Wago" : e.wowi ? "WoWInterface" : e.tukui ? "TukUI" : "CurseForge";
 }
@@ -541,8 +545,8 @@ async function openDetail(id, installedPackage = null) {
   $("detail-desc").textContent = e.desc || "";
   const localInfo = installedPackage ? `<div class="muted">Folders: ${installedPackage.folders.map(esc).join(", ")}</div>` : "";
   $("detail-body").innerHTML = localInfo + (e.github ? '<div class="muted"><span class="spinner"></span> Reading its README\u2026</div>' : "");
-  const canInstall = e.github || e.wowi || e.tukui || (e.wago && settings?.has_wago_key);
-  const needsKey = e.wago && !e.github && !e.wowi && !e.tukui && !settings?.has_wago_key;
+  const canInstall = catalogInstallable(e);
+  const needsKey = e.wago && !canInstall;
   $("detail-install").textContent = e.installed ? "Reinstall" : "Install";
   $("detail-install").classList.toggle("hidden", !canInstall);
   $("detail-note").textContent = needsKey ? "Needs a Wago key (Settings)." : canInstall || installedPackage ? "" : "Not installable from here: get it from its page.";
@@ -650,7 +654,7 @@ function renderFeatured() {
   $("featured-hint").textContent = pick.hint;
   $("featured-list").innerHTML = pick.items
     .map((e) => {
-      const canInstall = e.github || e.wowi || e.tukui || (e.wago && settings?.has_wago_key);
+      const canInstall = catalogInstallable(e);
       const meta = [e.category, e.downloads != null ? `${fmtCount(e.downloads)} downloads` : "", e.updated_at ? ago(e.updated_at) : ""].filter(Boolean).join(" · ");
       return `<div class="feat" data-id="${esc(e.id)}">${iconTile("c", e.id, e.name)}<div class="feat-body">
         <div class="feat-name" data-detail="${esc(e.id)}">${esc(e.name)}${e.installed ? ' <span class="badge ok">installed</span>' : ""}</div>
@@ -828,6 +832,7 @@ async function loadSettings() {
   $("wago-link").dataset.url = settings.wago_key_url;
   $("wago-status").textContent = settings.has_wago_key ? "A key is saved." : "No key saved. Wago-only addons will show as \"Needs Wago key\".";
   $("pref-prerelease").checked = !!settings.allow_prerelease;
+  $("pref-curse").checked = !!settings.curse_unofficial;
   $("catalog-info").textContent = settings.catalog_count
     ? `${settings.catalog_count} addons · ${settings.catalog_source === "remote" ? "latest from GitHub" : "built-in copy (GitHub copy unreachable)"}${settings.catalog_updated ? " · " + settings.catalog_updated : ""}`
     : "not loaded yet";
@@ -936,6 +941,19 @@ $("pref-prerelease").addEventListener("change", async (e) => {
   try {
     await invoke("set_prefs", { allowPrerelease: e.target.checked });
     toast(e.target.checked ? "Pre-releases included. Check for updates to see them." : "Pre-releases excluded");
+  } catch (err) {
+    toast(String(err), true);
+  }
+});
+$("pref-curse").addEventListener("change", async (e) => {
+  try {
+    await invoke("set_prefs", { curseUnofficial: e.target.checked });
+    toast(e.target.checked ? "CurseForge-only addons can be installed now (unofficial)" : "CurseForge-only addons are link-only again");
+    await loadSettings();
+    renderCatalog();
+    renderFeatured();
+    await loadBundles();
+    await rescan();
   } catch (err) {
     toast(String(err), true);
   }

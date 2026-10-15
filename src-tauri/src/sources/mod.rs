@@ -2,6 +2,7 @@
 //! the zip" for one addon. The app talks to these sites directly over
 //! HTTPS; nothing goes through a Pocket Forge server.
 
+pub mod curseforge;
 pub mod github;
 pub mod tukui;
 pub mod wago;
@@ -16,6 +17,8 @@ pub enum Source {
     Wago(String),
     Wowi(u64),
     Tukui(String),
+    /// CurseForge project id. Unofficial, only when Settings allows it.
+    Curse(u64),
 }
 
 impl Source {
@@ -25,6 +28,7 @@ impl Source {
             Source::Wago(_) => "wago",
             Source::Wowi(_) => "wowi",
             Source::Tukui(_) => "tukui",
+            Source::Curse(_) => "curse",
         }
     }
     pub fn id(&self) -> String {
@@ -33,6 +37,7 @@ impl Source {
             Source::Wago(i) => i.clone(),
             Source::Wowi(i) => i.to_string(),
             Source::Tukui(s) => s.clone(),
+            Source::Curse(i) => i.to_string(),
         }
     }
     pub fn label(&self) -> String {
@@ -41,6 +46,7 @@ impl Source {
             Source::Wago(_) => "Wago".into(),
             Source::Wowi(_) => "WoWInterface".into(),
             Source::Tukui(_) => "TukUI".into(),
+            Source::Curse(_) => "CurseForge (unofficial)".into(),
         }
     }
     pub fn url(&self) -> String {
@@ -49,6 +55,7 @@ impl Source {
             Source::Wago(i) => format!("https://addons.wago.io/addons/{i}"),
             Source::Wowi(i) => format!("https://www.wowinterface.com/downloads/info{i}"),
             Source::Tukui(s) => format!("https://tukui.org/{s}"),
+            Source::Curse(i) => format!("https://www.curseforge.com/projects/{i}"),
         }
     }
     /// Rebuild from the strings stored in state.json.
@@ -58,6 +65,7 @@ impl Source {
             "wago" => Some(Source::Wago(id.to_string())),
             "wowi" => id.parse().ok().map(Source::Wowi),
             "tukui" => Some(Source::Tukui(id.to_string())),
+            "curse" => id.parse().ok().map(Source::Curse),
             _ => None,
         }
     }
@@ -94,12 +102,13 @@ pub async fn resolve(
         Source::Wago(id) => wago::resolve(client, id, opts.wago_key, opts.prerelease).await,
         Source::Wowi(id) => wowi::resolve(client, *id).await,
         Source::Tukui(slug) => tukui::resolve(client, slug).await,
+        Source::Curse(id) => curseforge::resolve(client, *id, opts.prerelease).await,
     }
 }
 
-/// "v1.2.3" == "1.2.3" for update checks.
+/// "v1.2.3" == "1.2.3" for update checks. Some packaged TOCs say "#1.2.3".
 pub fn normalize_version(v: &str) -> String {
-    v.trim().trim_start_matches(['v', 'V']).trim().to_ascii_lowercase()
+    v.trim().trim_start_matches(['v', 'V', '#']).trim().to_ascii_lowercase()
 }
 
 /// Turn "https://github.com/owner/repo/..." or "owner/repo" into "owner/repo".
