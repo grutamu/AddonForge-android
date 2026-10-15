@@ -20,10 +20,11 @@ use tauri::State;
 use tokio::sync::{Mutex, Semaphore};
 use wow::{AddonFolder, WowInstall};
 
+/// What the addon sites see: this fork, so its traffic isn't taken for upstream's.
 pub const USER_AGENT: &str = concat!(
-    "AddonForge/",
+    "AddonForge-android/",
     env!("CARGO_PKG_VERSION"),
-    " (+https://github.com/Topher121/AddonForge)"
+    " (+https://github.com/grutamu/AddonForge-android)"
 );
 /// Where "Report on GitHub" files issues: this fork, not upstream.
 pub const REPO_URL: &str = "https://github.com/grutamu/AddonForge-android";
@@ -1264,6 +1265,13 @@ mod tests {
         assert_eq!(deps, vec!["Titan", "!BugGrabber"]);
         assert_eq!(tr.missing_deps[0].catalog_id.as_deref(), Some("titan"));
         assert!(tr.missing_deps[1].catalog_id.is_none());
+    }
+
+    #[test]
+    fn user_agent_names_the_fork() {
+        assert!(USER_AGENT.starts_with("AddonForge-android/"), "{USER_AGENT}");
+        assert!(USER_AGENT.contains("github.com/grutamu/AddonForge-android"), "{USER_AGENT}");
+        assert!(!USER_AGENT.contains("Topher121"), "{USER_AGENT}");
     }
 
     #[test]
