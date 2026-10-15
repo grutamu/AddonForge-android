@@ -60,12 +60,4 @@ Weeks with no featured addons show what was recently added instead, so nobody ha
 
 ## Code changes
 
-Rust core in `src-tauri/`, plain HTML/JS in `ui/`. `cargo test` must pass. Keep the promises in the README: no accounts, no ads, no analytics, no server of ours in the loop, and no CurseForge API key in the exe.
-
-Headless mode is the quickest way to test without the window:
-
-```
-addonforge.exe --cli scan
-addonforge.exe --cli check
-addonforge.exe --cli resolve all
-```
+Rust core in `src-tauri/`, plain HTML/JS in `ui/`. `cargo test`, `node scripts/test-ui.js` and `node scripts/security-check.mjs` must pass, and changes are tested on a device with `scripts/android-smoke.sh`. Keep the promises in the README: no accounts, no ads, no analytics, no server of ours in the loop, and no CurseForge API key in the app.
