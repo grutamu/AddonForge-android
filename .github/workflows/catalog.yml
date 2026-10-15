@@ -6,7 +6,7 @@ on:
       - "catalog/**"
       - "scripts/validate-catalog.js"
   push:
-    branches: [main]
+    branches: [android]
     paths:
       - "catalog/**"
       - "scripts/validate-catalog.js"
