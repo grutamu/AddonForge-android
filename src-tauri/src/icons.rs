@@ -1,8 +1,10 @@
 //! Addon icons, three sources in order:
 //!  1. the addon's own `## IconTexture` file on disk (TGA / BLP / PNG),
-//!  2. the GitHub author's avatar for GitHub-sourced addons (or a catalogue
-//!     entry's explicit `icon` URL, https only),
-//!  3. nothing: the UI draws a lettered tile.
+//!  2. for addons on GitHub, the same `## IconTexture` file read from the
+//!     repo (raw.githubusercontent.com), or a catalogue entry's explicit
+//!     `icon` URL (https only),
+//!  3. nothing: the UI draws a lettered tile. Never the author's avatar: it
+//!     is a person, not the addon.
 //!
 //! Icons the game keeps inside its own data files (`Interface\Icons\...`)
 //! are not readable from disk and are deliberately NOT fetched from any
@@ -20,7 +22,7 @@ use std::path::{Path, PathBuf};
 use std::time::{Duration, SystemTime};
 
 const SIZE: u32 = 32;
-const AVATAR_TTL: Duration = Duration::from_secs(30 * 24 * 3600);
+const ICON_TTL: Duration = Duration::from_secs(30 * 24 * 3600);
 
 fn cache_dir() -> PathBuf {
     crate::state::AppState::dir().join("icons")
@@ -36,7 +38,13 @@ fn to_data_url(png: &[u8]) -> String {
     format!("data:image/png;base64,{}", base64::engine::general_purpose::STANDARD.encode(png))
 }
 
+/// Square 32px PNG. A strip (Plater's cast bar) cropped to a square is
+/// unrecognisable: anything over 2:1 is refused and gets the lettered tile.
 fn encode_png(img: image::DynamicImage) -> anyhow::Result<Vec<u8>> {
+    let (w, h) = (img.width().max(1), img.height().max(1));
+    if w > 2 * h || h > 2 * w {
+        anyhow::bail!("not an icon: {w}x{h}");
+    }
     let small = img.resize_to_fill(SIZE, SIZE, FilterType::Lanczos3).to_rgba8();
     let mut out = Vec::new();
     small.write_to(&mut std::io::Cursor::new(&mut out), image::ImageFormat::Png)?;
@@ -58,6 +66,26 @@ fn decode_file(path: &Path) -> anyhow::Result<image::DynamicImage> {
         return Ok(image::DynamicImage::ImageRgba8(ours));
     }
     Ok(image::open(path)?)
+}
+
+/// Decode image bytes; BLP needs a file, so it goes through one.
+fn decode_bytes(bytes: &[u8], ext: &str) -> Option<image::DynamicImage> {
+    if ext == "blp" {
+        let mut h = DefaultHasher::new();
+        bytes.hash(&mut h);
+        let tmp = cache_dir().join(format!("tmp-{:016x}.blp", h.finish()));
+        fs::create_dir_all(cache_dir()).ok()?;
+        fs::write(&tmp, bytes).ok()?;
+        let img = decode_file(&tmp).ok();
+        let _ = fs::remove_file(&tmp);
+        return img;
+    }
+    let fmt = match ext {
+        "tga" => image::ImageFormat::Tga,
+        "png" => image::ImageFormat::Png,
+        _ => return image::load_from_memory(bytes).ok(),
+    };
+    image::load_from_memory_with_format(bytes, fmt).ok()
 }
 
 /// Resolve `## IconTexture` to a file inside the install, if it points at one.
@@ -96,14 +124,14 @@ pub fn local_icon(install: &Path, texture: &str) -> Option<String> {
     Some(to_data_url(&png))
 }
 
-/// Fetch an https image (GitHub avatar or a catalogue `icon` URL), cached for 30 days.
+/// Fetch an https image (a catalogue `icon` URL), cached for 30 days.
 pub async fn remote_icon(client: &reqwest::Client, url: &str) -> Option<String> {
     if !url.starts_with("https://") {
         return None;
     }
     let cache = cache_dir().join(format!("{}.png", key(url)));
     if let Ok(meta) = fs::metadata(&cache) {
-        let fresh = meta.modified().ok().and_then(|m| m.elapsed().ok()).map(|age| age < AVATAR_TTL).unwrap_or(false);
+        let fresh = meta.modified().ok().and_then(|m| m.elapsed().ok()).map(|age| age < ICON_TTL).unwrap_or(false);
         if fresh {
             if let Ok(png) = fs::read(&cache) {
                 return Some(to_data_url(&png));
@@ -131,12 +159,81 @@ pub async fn remote_icon(client: &reqwest::Client, url: &str) -> Option<String> 
     Some(to_data_url(&png))
 }
 
-pub fn github_avatar_url(repo: &str) -> Option<String> {
-    let owner = repo.split('/').next()?.trim();
-    if owner.is_empty() {
-        return None;
+/// The `## IconTexture` line of a TOC.
+fn toc_icon_texture(toc: &str) -> Option<String> {
+    toc.lines().find_map(|l| {
+        let (k, v) = l.trim().strip_prefix("##")?.split_once(':')?;
+        k.trim().eq_ignore_ascii_case("icontexture").then(|| v.trim().to_string()).filter(|v| !v.is_empty())
+    })
+}
+
+/// Repo paths to try for an `Interface\AddOns\<Folder>\path\file` texture,
+/// given where the TOC sat (`dir` = "" for the repo root, else "<Folder>/").
+fn texture_paths(texture: &str, toc_folder: &str, dir: &str) -> Vec<String> {
+    let t = texture.trim().replace('\\', "/");
+    let Some(rest) = t.get("interface/addons/".len()..).filter(|_| t.to_ascii_lowercase().starts_with("interface/addons/")) else {
+        return Vec::new(); // a game-internal icon: not in the repo
+    };
+    let Some((folder, file)) = rest.split_once('/') else { return Vec::new() };
+    let mut bases = Vec::new();
+    if dir.is_empty() && folder.eq_ignore_ascii_case(toc_folder) {
+        bases.push(file.to_string()); // the repo root is the addon folder
     }
-    Some(format!("https://github.com/{owner}.png?size=64"))
+    bases.push(format!("{folder}/{file}")); // the repo holds the addon folders
+    let has_ext = file.rsplit('/').next().map(|n| n.contains('.')).unwrap_or(false);
+    bases
+        .into_iter()
+        .flat_map(|b| if has_ext { vec![b] } else { ["tga", "blp", "png"].iter().map(|e| format!("{b}.{e}")).collect() })
+        .collect()
+}
+
+/// The addon's own icon, read from its GitHub repo: find a TOC for one of
+/// its folders (main, Forever or Classic flavour), follow `## IconTexture`.
+/// Cached a month, a miss too, so each repo is looked at once.
+pub async fn github_icon(client: &reqwest::Client, repo: &str, folders: &[String]) -> Option<String> {
+    let cache = cache_dir().join(format!("{}.png", key(&format!("ghicon|{repo}"))));
+    if let Ok(meta) = fs::metadata(&cache) {
+        let fresh = meta.modified().ok().and_then(|m| m.elapsed().ok()).map(|age| age < ICON_TTL).unwrap_or(false);
+        if fresh {
+            let png = fs::read(&cache).ok()?;
+            return (!png.is_empty()).then(|| to_data_url(&png)); // empty file = no icon
+        }
+    }
+    let png = find_github_icon(client, repo, folders).await;
+    let _ = fs::create_dir_all(cache_dir());
+    let _ = fs::write(&cache, png.as_deref().unwrap_or_default());
+    png.map(|p| to_data_url(&p))
+}
+
+async fn find_github_icon(client: &reqwest::Client, repo: &str, folders: &[String]) -> Option<Vec<u8>> {
+    let raw = |path: String| {
+        let url = format!("https://raw.githubusercontent.com/{repo}/HEAD/{path}");
+        async move {
+            let r = client.get(url).timeout(Duration::from_secs(10)).send().await.ok()?;
+            if !r.status().is_success() {
+                return None;
+            }
+            r.bytes().await.ok().filter(|b| b.len() <= 2 * 1024 * 1024)
+        }
+    };
+    // A repo name like "Plater-Nameplates" or "wow-silverdragon" is no
+    // folder name; the catalogue's first folders are.
+    for folder in folders.iter().take(2) {
+        for dir in [String::new(), format!("{folder}/")] {
+            for suffix in ["", "_Forever", "-Forever", "_Vanilla", "-Classic", "_Classic"] {
+                let Some(toc) = raw(format!("{dir}{folder}{suffix}.toc")).await else { continue };
+                let Some(tex) = toc_icon_texture(&String::from_utf8_lossy(&toc)) else { continue };
+                for path in texture_paths(&tex, folder, &dir) {
+                    let ext = path.rsplit('.').next().unwrap_or("").to_ascii_lowercase();
+                    if let Some(img) = raw(path).await.and_then(|b| decode_bytes(&b, &ext)) {
+                        return encode_png(img).ok();
+                    }
+                }
+                return None; // the TOC names an icon we can't get: stop looking
+            }
+        }
+    }
+    None
 }
 
 // ---------------------------------------------------------------- addon details (README excerpt + first image)
@@ -462,5 +559,17 @@ mod tests {
         assert!(e.starts_with("This is bold and a link here."), "{e}");
         assert!(e.contains("\u{2022} one"));
         assert!(!e.contains("code"));
+    }
+
+    #[test]
+    fn toc_icon_texture_maps_to_repo_paths() {
+        let toc = "## Interface: 11508\n## Title: BugSack\n##IconTexture: Interface\\AddOns\\BugSack\\Media\\icon\n";
+        let tex = toc_icon_texture(toc).unwrap();
+        assert_eq!(toc_icon_texture("## IconTexture-blank: 982414"), None);
+        // TOC at the repo root: the root is the addon folder.
+        assert_eq!(texture_paths(&tex, "BugSack", "")[..3], ["Media/icon.tga", "Media/icon.blp", "Media/icon.png"]);
+        // TOC in a folder: the repo holds the addon folders.
+        assert_eq!(texture_paths("Interface\\AddOns\\DBM-Core\\textures\\dbm_airhorn.tga", "DBM-Core", "DBM-Core/"), ["DBM-Core/textures/dbm_airhorn.tga"]);
+        assert!(texture_paths("Interface\\Icons\\INV_Misc_Head_Dragon_01", "SilverDragon", "").is_empty());
     }
 }
