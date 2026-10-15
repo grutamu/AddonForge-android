@@ -1084,26 +1084,6 @@ async fn skip_self_update(app: State<'_, Shared>, tag: String) -> Result<(), Str
     st.save().map_err(err)
 }
 
-#[tauri::command]
-async fn apply_self_update(app: State<'_, Shared>, handle: tauri::AppHandle) -> Result<String, String> {
-    let url = std::env::var("ADDONFORGE_UPDATE_URL").ok();
-    let r = selfupdate::check(&app.client, url.as_deref()).await;
-    let latest = r.latest.ok_or_else(|| r.error.unwrap_or_else(|| "no update info".into()))?;
-    if !r.available {
-        return Err("Already up to date".into());
-    }
-    let new_exe = selfupdate::apply(&app.client, &latest).await.map_err(|e| {
-        loge!("self-update: {e}");
-        e.to_string()
-    })?;
-    let h = handle.clone();
-    tokio::spawn(async move {
-        tokio::time::sleep(std::time::Duration::from_millis(600)).await;
-        h.exit(0);
-    });
-    Ok(new_exe.to_string_lossy().to_string())
-}
-
 /// First launch of a newer build: return that build's release notes once.
 /// Never on a fresh install (nothing to compare with), never for dev builds.
 #[derive(Serialize)]
@@ -1126,11 +1106,10 @@ async fn whats_new(app: State<'_, Shared>) -> Result<Option<WhatsNew>, String> {
     if last == current {
         return Ok(None);
     }
-    // Existing user if: we recorded a previous build, or the self-updater
-    // launched us, or they already have addons managed by AddonForge
-    // (people on builds before this field existed). Otherwise fresh install.
-    let just_updated = std::env::var("ADDONFORGE_JUST_UPDATED").is_ok();
-    let existing = last != 0 || just_updated || has_history;
+    // Existing user if: we recorded a previous build, or they already have
+    // addons managed by AddonForge (people on builds before this field
+    // existed). Otherwise fresh install.
+    let existing = last != 0 || has_history;
     let mut result = None;
     if existing {
         let url = std::env::var("ADDONFORGE_UPDATE_URL").ok();
@@ -1243,16 +1222,11 @@ pub fn run() {
             import_list,
             check_self_update,
             skip_self_update,
-            apply_self_update,
             whats_new,
             diagnostics,
         ])
         .run(tauri::generate_context!())
         .expect("error while running AddonForge");
-}
-
-pub fn finish_replace(old: &Path) {
-    selfupdate::finish_replace(old);
 }
 
 #[cfg(test)]
