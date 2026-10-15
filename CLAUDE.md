@@ -7,211 +7,117 @@ then talk about the project in the first person ("my catalogue", "my build
 script"). Light touch: it is a name and a voice, NOT roleplay — technical
 work, explanations, and warnings stay plain and precise.
 
-# CLAUDE.md — AddonForge
+# CLAUDE.md — AddonForge for Android
 
 ## Project brief
-A lightweight, telemetry-free Windows addon manager for **WoW: Forever**
-(Blizzard's Classic+ client: announced 12 Sep 2026, beta 17 Sep, launch
-4 Nov 2026; interface number **16001**, patch 1.60.1, product folder
-`_classic_beta_`, product code `wow_classic_beta`). Started 2026-09-22 after
-the owner asked whether we could build a WowUp/CurseForge alternative that uses
-very little memory and has no privacy issues. Decisions locked that day:
+An addon manager for **WoW: Forever** (Blizzard's Classic+ client; interface
+**16001**, product folder `_classic_beta_`, product code `wow_classic_beta`)
+that runs ONLY on Android, laid out for the **AYN Thor**'s top screen in
+landscape and driven by its gamepad. It is an unofficial port of
+`Topher121/AddonForge` (a Windows app by Pocket Forge Studios, MIT licensed);
+the Windows code was removed on 2026-10-14 and nothing is merged back. Repo:
+`grutamu/AddonForge-android`, default branch `android`. The `upstream` remote
+points at Topher121/AddonForge; never push to it.
 
-- **Forever only to start** (the owner: "as I will be playing that and can test
-  it"). The code keeps a `flavor` field so other flavours can come later,
-  but do not add them until asked.
-- **No Pocket Forge server in the loop.** The app talks only to the addon
-  sites (GitHub, Wago, WoWInterface, TukUI) over HTTPS. No accounts, no ads,
-  no analytics, ever. "Support the dev" link only.
-- **Catalogue, not a host.** `catalog/forever.json` in this repo is a
-  pointer list (where each author publishes). Users/authors add entries by
-  pull request. We never store zips. A copy is compiled into the exe
-  (`include_str!`) as a fallback; at runtime the latest copy is fetched from
-  raw.githubusercontent.com.
-- **CurseForge is link-out only.** Their API key must stay secret (can't
-  ship it in an exe), quotas can trigger a paid licence, authors can opt out
-  of third-party distribution, and since July 2026 even the file CDN needs
-  a key. Rows that only carry an `X-Curse-Project-ID` show "CurseForge
-  only" with a link. Maybe apply for a key later; if so, bring-your-own-key
-  first, relay never by default.
-- **Wago is bring-your-own-key** (free from addons.wago.io/account/apikeys);
-  stored in the local state file, only ever sent to addons.wago.io.
-- Most Forever addons live on CurseForge (Leatrix, Baganator, Bagnon,
-  Auctionator, Questie Forever…). GitHub covers BigWigs, DBM, Plater,
-  RestedXP so far. The seed catalogue is being expanded; keep `forever`
-  true/false honest per entry.
+Kept from upstream, still binding:
+- **Forever only.** The code keeps a `flavor` field; don't add other flavours
+  until asked.
+- **No server of ours in the loop.** The app talks only to the addon sites
+  (GitHub, Wago, WoWInterface, TukUI) over HTTPS, plus GitHub for its own
+  update check. No accounts, no ads, no analytics.
+- **Catalogue, not a host.** `catalog/forever.json` is a pointer list; we
+  never store zips.
+- **CurseForge is link-out only.** Rows that only carry an
+  `X-Curse-Project-ID` show "CurseForge only" with a link.
+- **Wago is bring-your-own-key**, stored in the local state file, only ever
+  sent to addons.wago.io.
 
-## Tech stack
-- **Rust + Tauri 2** (`src-tauri/`), WebView2 UI (already on Windows 11,
-  not bundled), plain HTML/JS/CSS in `ui/` — no bundler, no framework,
-  `withGlobalTauri: true` so the UI uses `window.__TAURI__` directly.
-- Toolchain (installed 2026-09-22): rustup via winget (`~\.cargo\bin`,
-  add to PATH in shells: `export PATH="$HOME/.cargo/bin:$PATH"`), MSVC
-  linker from VS 2022 Community, Node 26 for `@tauri-apps/cli` (npm
-  devDependency). `npm run dev` = `tauri dev`; `npm run build` =
-  `tauri build --no-bundle` → `src-tauri\target\release\addonforge.exe`
-  (single portable exe; NSIS installer available via `npx tauri build`).
-- Crates: reqwest (rustls), tokio, zip (deflate only), serde, dirs, anyhow.
-  Release profile: opt-level s, LTO, strip.
-- Verify before shipping: `cargo check` must be clean and `cargo test`
-  green; then `npm run build`.
+Decided by the owner (2026-10-14), don't re-propose:
+- The catalogue and stats.json stay fetched from Topher121/AddonForge
+  (upstream) for now. The repo's `catalog/` is only the built-in fallback;
+  refresh it from upstream before a release (`git fetch upstream && git
+  checkout upstream/main -- catalog/`). Catalogue and featuring requests go
+  to upstream (README / CONTRIBUTING say so).
+- No layout for the Thor's bottom screen.
+- Bug reports go to this fork's GitHub issues only (`REPO_URL`). No support
+  email, no Ko-fi.
+- No headless `--cli` (testing happens on the Thor).
+- `npm run dev` stays as an 853×480 preview window on the Mac.
+- Releases are named by date (see Releases).
+
+## Tech stack and toolchain
+- **Rust + Tauri 2** (`src-tauri/`), Android System WebView, plain
+  HTML/JS/CSS in `ui/`: no bundler, no framework, `withGlobalTauri: true` so
+  the UI uses `window.__TAURI__` directly. Kotlin in
+  `src-tauri/gen/android/app/src/main/java/io/github/grutamu/addonforge/MainActivity.kt`.
+- On the owner's Mac (Homebrew): rustup at `/opt/homebrew/opt/rustup/bin`
+  (add it to PATH; `~/.cargo/bin` has no cargo), JDK 17 at
+  `/opt/homebrew/Cellar/openjdk@17/<ver>/libexec/openjdk.jdk/Contents/Home`,
+  `ANDROID_HOME=/opt/homebrew/share/android-commandlinetools`,
+  `NDK_HOME=$ANDROID_HOME/ndk/<ver>`.
+- Crates: reqwest (rustls), tokio, zip (deflate only), serde, anyhow, image +
+  image-blp, base64. Plugins: tauri-plugin-opener only. Release profile:
+  opt-level s, LTO, strip.
+
+## Checks (run all three; CI runs them on macOS for every PR / push to android)
+```
+export ADDONFORGE_STATE_DIR=$(mktemp -d)    # always: tests must never touch a real profile
+(cd src-tauri && cargo test)
+node scripts/test-ui.js                     # loads ui/app.js up to the "boot" marker in a fake DOM
+node scripts/security-check.mjs
+```
+- test-ui's fake DOM invents any id it is asked for, so it also checks that
+  every literal `$("id")` in ui/*.js exists in index.html. Code that needs a
+  real browser (MutationObserver, navigator, window listeners) goes below the
+  boot marker in app.js or in pad.js.
+- On the device: `scripts/android-smoke.sh [apk] [out]` installs, launches,
+  walks every tab with the pad, fails on a crash and saves screenshots of the
+  top screen. `adb shell settings put system font_scale 1.3` is the quick
+  large-font check (`settings delete system font_scale` to restore).
 
 ## Code map
-- `src-tauri/src/wow.rs` — install discovery (drive scan for
-  `World of Warcraft\_*_` with `.flavor.info`), TOC parsing (Forever-suffix
-  TOC first, then generic; strips `|cffXXXXXX` colour codes; reads
-  Interface list, X-Wago-ID, X-Curse-Project-ID, X-WoWI-ID, X-Website).
-- `src-tauri/src/sources/` — one file per source, all return `Remote
-  {version, download_url, filename, forever: Option<bool>}`.
+- `src-tauri/src/wow.rs` — install discovery: `find_installs()` scans each
+  storage volume and its Download/Downloads/Games folder for a game root
+  (`.build.info` or a `_classic_beta_` folder), `find_installs_in(volumes)`
+  is the testable part. TOC parsing (Forever-suffix TOC first; strips colour
+  codes; reads Interface, X-Wago-ID, X-Curse-Project-ID, X-WoWI-ID, X-Website).
+- `src-tauri/src/sources/` — one file per source, all return `Remote`.
   GitHub prefers the packager's `release.json` via the
-  `releases/latest/download/` redirect (no API, no rate limit), falls back
-  to the REST API (60/hr unauthenticated).
-- `src-tauri/src/install.rs` — download into
-  `<AddOns>\.addonforge-tmp\`, extract, move existing folders aside, rename
-  in (same volume ⇒ atomic per folder), restore on failure. Never touches
-  `WTF\`.
-- `src-tauri/src/state.rs` — `%APPDATA%\AddonForge\state.json` (install
-  path, wago key, what we installed + versions). Atomic write.
-- `src-tauri/src/lib.rs` — Tauri commands; groups folders into packages
-  (catalogue match by folder name / ids, then by Wago/WoWI/Curse id, else
-  standalone) and picks the source (github > wago-with-key > wowi > tukui).
-- `ui/app.js` — three tabs: **Installed** (filter, All / Updates / Needs
-  attention, show-ignored, a one-line count strip, then a TABLE: Addon /
-  Version / Source / Status / actions with a "···" row menu for pin,
-  ignore, remove), **Browse** (install-from-GitHub row + catalogue table),
-  **Settings** (label-column preferences pane, no cards).
-  Redesigned AGAIN 2026-09-23 (owner: make it look "non-AI"): no taglines,
-  eyebrows, stat cards, pill badges or footer slogan; dense rows with
-  hairlines; status = coloured dot + word; ONE ember accent (`--accent`,
-  from the icon) for the active tab, the single primary button per screen
-  and "update available"; columns use fixed px widths so rows align with
-  the header. Element ids are unchanged so `node scripts/test-ui.js`
-  (DOM-free behaviour checks) still passes; keep it and `cargo test` green.
-  `ADDONFORGE_TAB=browse|settings` env opens the app on that tab
-  (screenshots). No "managed" tag or folder counts in rows (owner: users
-  don't care); the Remove dialog still lists the folders.
-- **What's new popup**: `whats_new` command + `state.last_seen_build`.
-  First launch of a newer build fetches latest.json and, if its build ==
-  the running build, shows the release note once. Never on a fresh
-  install, never for dev builds (build 0). The self-update banner says
-  "A new version of AddonForge is available … Please update to the
-  latest" and the notes are shown after the update instead.
+  `releases/latest/download/` redirect (no API, no rate limit), falls back to
+  the REST API (60/hr unauthenticated).
+- `src-tauri/src/install.rs` — download into `<AddOns>/.addonforge-tmp/`,
+  extract, move existing folders aside, rename in, restore on failure. Never
+  touches `WTF/`. `safety_scan` refuses executables (by extension, `MZ`
+  header) and symlinks; `remove_folders` never follows a link (unit-tested).
+- `src-tauri/src/state.rs` — `state.json` in `/data/data/<pkg>/files/AddonForge`
+  (DON'T move it: users would lose their settings). Host builds use
+  `<tmp>/AddonForge-host` unless `ADDONFORGE_STATE_DIR` is set. Atomic write.
+  `log.rs` writes `addonforge.log` beside it; `icons.rs` caches in `icons/`.
+- `src-tauri/src/lib.rs` — Tauri commands; groups folders into packages and
+  picks the source (github > wago-with-key > wowi > tukui). `REPO_URL` (bug
+  reports) and `USER_AGENT` name the fork (a unit test checks the UA).
+- `src-tauri/src/selfupdate.rs` — the update check (see Releases).
+- `ui/index.html` — the whole Thor layout as static markup: nav rail
+  (tabs + update badge) | list | details pane (`#pane`). The pane shows
+  `#detail` when something is selected, else a per-tab home (counts + Check +
+  Update all / Install from GitHub + Refresh catalogue / the guide). Settings
+  has no pane.
+- `ui/app.js` — app behaviour: lists, filter and sort chips (a pad can't open
+  a `<select>`), the details pane and `renderPackageActions()` (Update /
+  Reinstall, Pin, Ignore, Remove, with explanations), Undo snackbar for Pin /
+  Ignore, offline guard, pickers and sharing through the bridge (`A?.…`, so
+  the Mac preview and tests run without it).
+- `ui/pad.js` — gamepad, spatial focus, Back order, first run (#onboard),
+  quiet re-check on resume after 10 min, launcher shortcut.
+- `ui/style.css` — base rules, then the Forge theme (brass and charcoal, serif
+  small-caps wordmark), then the Thor layout. Keep that order. A short block
+  at the end carries values the old desktop width rules used to set on the
+  device. `ADDONFORGE_TAB=start|browse|settings|guide|detail:<id>` opens on
+  that screen (screenshots).
 
-## v0.3.0 Discover update (shipped 2026-09-24, build 12)
-- **Icons** (src/icons.rs): the addon's own "## IconTexture" file (TGA/BLP/PNG,
-  decoded with the image + image-blp crates; BLP goes via a raw RGBA buffer
-  because image-blp pins an older image crate), else the GitHub author
-  avatar, else a lettered tile drawn by the UI. Cached as 32px PNGs in
-  %APPDATA%\AddonForge\icons\, handed to the UI as data URLs and filled
-  into rows in place (no re-render). Commands package_icons / catalog_icons.
-- **Download counts + sort**: catalog/stats.json is written daily by
-  .github/workflows/stats.yml (scripts/build-stats.js: sums GitHub release
-  asset download_count over all releases; WoWI UIDownloadTotal). A copy is
-  compiled in as fallback. Browse sorts by Name / Most downloaded /
-  Recently updated; the column shows "48k" plus "updated N days ago".
-- **Starter packs tab** (tab-start): "bundles" in forever.json (id, name,
-  desc, addons[], note); the validator checks every id exists. Command
-  "bundles" returns install state per addon; "Install all" runs
-  install_catalog sequentially and skips NOT_FOREVER with a toast. The owner
-  2026-09-24: never call a pack "Essentials", nothing is essential. The
-  "New to addons?" guide lives at the top of this tab and opens itself when
-  nothing is installed.
-- **Details window** (addon_details): click a chip or a Browse row name.
-  GitHub entries get a README excerpt (raw markdown, stripped) and the first
-  real picture from GitHub's RENDERED README (api.github.com/repos/x/readme
-  with Accept vnd.github.html: off-site images come back through
-  camo.githubusercontent.com, so the app still only talks to GitHub; direct
-  imgur etc. links are refused). Badges, logos and widgets are skipped.
-  Cached a day as json + jpeg (<=720px) in the icons dir. One API call per
-  addon opened.
-- Catalogue: whichever copy is NEWER by "updated" wins (bundled vs remote),
-  so a fresh build is not downgraded by a stale GitHub copy. Bump "updated"
-  whenever forever.json changes.
-- Dev hooks: ADDONFORGE_TAB=start|browse|settings|guide|detail:<id>.
-  scripts/dev-shot.ps1 needs a SHORT output path (GDI+ fails on long ones).
-
-## Forge theme (shipped 2026-09-24, build 13)
-The owner restyled the UI in another tool and had it checked here before
-shipping. Brass-and-charcoal theme appended to the end of style.css (it
-overrides the earlier quiet-table rules; keep it at the end), serif small-caps
-wordmark next to the ember mark (ONE logo everywhere), 36px header with
-the tab bar under it, tabs renamed My addons / Find addons / Starter packs /
-Settings, "WoW: Forever · Installation settings" link top-right, status bar
-at the bottom (game-folder dot + Open AddOns folder), Installed tab has
-separate Installed / Available columns, a filter dropdown instead of
-buttons, "Checked at HH:MM", and the inline button is only ever Update
-(Install/Reinstall live in the row menu). Clicking an installed addon's name
-opens the same details window as Browse (openDetail with the package).
-Review notes that were applied before shipping: no duplicate selection
-panel under the table, no second logo, header kept short.
-
-## CurseForge API (approved 2026-09-28, NOT connected yet)
-CurseForge approved AddonForge for the 3rd Party API. Nothing is built.
-The owner's rule: be 100% sure no terms are broken before hooking it up.
-A support email went to cfforstudios@overwolf.com on 2026-09-28 asking
-(1) may the key be embedded in release builds if it never enters the repo,
-(2) may the app store installed file id + version locally (terms 3.1e
-forbid saving or caching API data), (3) is installing from GitHub / Wago /
-WoWI a problem under the non-compete wording. Also a console login problem
-(account was created by them; reset email not arriving). WAIT for their
-written answer before writing any CurseForge code.
-Hard constraints from the terms whatever they answer: key never in the repo
-or chat (private/curseforge-key.txt, gitignored); no disk cache of API
-data and none of it in stats.json; no proxy or relay server (terms forbid
-it); authors who opt out of distribution stay link-only, never build a
-download link around it; keep calls minimal (quota can trigger a paid
-licence); GitHub stays the preferred source when an addon has both; the
-account should be under Pocket Forge Studios, not a personal name.
-API: base https://api.curseforge.com, header x-api-key, WoW is one game with
-gameVersionTypeId per flavour (517 = retail); find Forever's id with
-GET /v1/games/{id}/version-types once the key exists.
-
-## Catalogue notices + ForeverSVFix (build 14, 2026-10-01, closes issue #1)
-- `notice` (optional, <=160 chars) on a catalogue entry is shown as an amber
-  line on that addon's installed row. Flip the text in forever.json to tell
-  every user something (e.g. "no longer needed, remove it"); no app release.
-  SVShim carries one: when Blizzard fixes SavedVariables, change it to say so.
-- SVShim is LINK-ONLY: its zip ships `Start-SVShim.cmd`, which the zip
-  safety rule refuses. Never add a github source back to it.
-- ForeverSVFix (the exe tool, not an addon): detected by `WTF\ForeverSVFix\`
-  or a `ForeverSVFixData` link inside any addon folder (`wow::svfix_present`,
-  `settings.svfix`). My addons shows a standing amber line and every install /
-  update toast ends with "run Apply / Refresh before launching WoW", because
-  replacing an addon folder drops its patched TOC + link. Unit test proves
-  `remove_dir_all` never follows a junction (users' SavedVariables are safe).
-- Link-only catalogue entries now get their `url` as the row link.
-
-## Featured strip (build 15, 2026-10-02, the owner's idea)
-- Top of Find addons: up to four addons. Source, in order: catalogue
-  `featured` entries whose from/to (YYYY-MM-DD, inclusive) cover today;
-  else entries with `added` in the last 30 days ("New in the catalogue");
-  else the four most recently updated per stats.json. `pickFeatured(today)`
-  in app.js, unit-tested; Rust just returns the raw list (`catalog_featured`).
-- Authors apply with `.github/ISSUE_TEMPLATE/feature.yml` (must own the
-  repo, addon must already be listed, one sentence, 140 chars, a Monday).
-  The owner approves; the entry goes in by PR. FREE, no paid placement, ever:
-  that sentence is in the app, the README and CONTRIBUTING.
-- Set `added` on every new catalogue entry from now on.
-- Dev: `ADDONFORGE_STATE_DIR=<dir>` gives a throwaway settings profile.
-  The APPDATA env var does NOT redirect it (dirs crate uses the shell API);
-  on 2026-10-02 a `--cli use` test pointed the owner's real state at a
-  temp folder because of that. Always set ADDONFORGE_STATE_DIR for tests.
-
-## Android UI for the AYN Thor (fork grutamu/AddonForge-android, 2026-10-14)
-Target is ONLY the Thor's top screen in landscape (~833x469 CSS px, Android
-13, built-in gamepad). No portrait layout. Plan + decisions:
-`docs/android-ux-plan.md`.
-- `ui/touch.css` + `ui/touch.js` (loaded after style.css / app.js) do all of
-  it, scoped to `body.android`. touch.js returns at once on the desktop, so
-  Windows is untouched. Element ids are unchanged; touch.js MOVES existing
-  elements (Update all, Check, gh-repo row, guide, #detail) into the right-hand
-  pane rather than duplicating them. Desktop preview: localStorage `af-touch=1`.
-- Layout: nav rail (tabs + icons, update badge) | list | details pane
-  (#pane). The pane shows #detail when an addon is selected, else a per-tab
-  home (stats + tools / catalogue tools / the guide). Settings has no pane.
-  Selects become chips (a pad can't open a picker). Installed addon actions
-  (Update/Reinstall, Pin, Ignore, Remove, with explanations) are rendered by
-  `renderPackageActions()` in app.js; the desktop keeps its row menu.
+## Android details
+- Target: the Thor's top screen, ~833×469 CSS px, Android 13. No portrait.
+  UX plan and history: `docs/android-ux-plan.md`.
 - Gamepad: MainActivity consumes every pad button, D-pad / hat / left stick
   and system Back, and calls `afPad("A"|"B"|"X"|"Y"|"L1"|"R1"|"START"|"UP"…|"BACK")`.
   Consuming them stops Android's fallbacks (BUTTON_B → Back). Default layout
@@ -219,163 +125,122 @@ Target is ONLY the Thor's top screen in landscape (~833x469 CSS px, Android
   Settings → Controller switches to Xbox (swaps A/B and X/Y), stored in
   localStorage `af-pad-layout`, with a live "press a button" readout. The
   Thor's `.kl` maps BTN_SOUTH→BUTTON_A, but its firmware has an ABXY layout
-  mode, so the readout is how users check. Spatial navigation is edge-based
-  in touch.js. Quirks handled there: the first D-pad press after touching is
-  eaten by Android (leaving touch mode) and the WebView focuses the first
-  tab instead, and so does opening the keyboard; `defaultFocusHighlightEnabled
-  = false` stops Android's grey wash over the whole WebView. The Thor's
-  D-pad can report as a HAT axis (device "Xbox Wireless Controller"), and
-  hat/stick motion never leaves touch mode, so the WebView had no Android
-  focus and the page drew no focus ring (bug, 2026-10-14). MainActivity now
-  requests WebView focus before every afPad call and on window focus, and
-  touch.js highlights the first addon at launch.
+  mode, so the readout is how users check.
+- Focus quirks (handled in pad.js / MainActivity): the first D-pad press
+  after touching is eaten by Android (leaving touch mode) and the WebView
+  focuses the first tab instead, and so does opening the keyboard;
+  `defaultFocusHighlightEnabled = false` stops Android's grey wash. The
+  Thor's D-pad can report as a HAT axis (device "Xbox Wireless Controller"),
+  and hat/stick motion never leaves touch mode, so MainActivity requests
+  WebView focus before every afPad call and on window focus, and pad.js
+  highlights the first addon at launch.
 - Back order: dialog → text box → details → My addons → exit (`finish()`).
-- First run: MainActivity no longer fires the permission screen on its own.
-  #onboard explains "All files access", the button calls
-  `AddonForgeAndroid.requestFileAccess()` (a JavascriptInterface:
-  hasFileAccess / requestFileAccess / showKeyboard / exit, kept by a proguard
-  rule), then finds the game or takes a typed path.
-- Full screen (system bars hidden, swipe to show), sensorLandscape, dark
-  window background, no leanback/TV entry.
-- ForeverSVFix is never mentioned on Android. Self-update: Android checks
-  `api.github.com/repos/grutamu/AddonForge-android/releases/latest` for an `.apk`
-  asset (tag `android-<date>`, see Releases; local builds never show it) and
-  the banner's "Get it" opens the release page. No in-app installer, no Play button.
-- Build/test on the device: `npx tauri android build --apk --target aarch64
-  --config '{"bundle":{"android":{"versionCode":<installed code>}}}'` then
-  `adb install -r …/app-universal-release.apk`. Without the --config a local
-  build is versionCode 3000 and Android refuses it over a CI release as a
-  downgrade; never go ABOVE the next real release's code either (today's
-  date ×100 + 1 is safe), or that release won't install over it. For poking the page live,
-  add `WebView.setWebContentsDebuggingEnabled(true)` locally and use
-  `adb forward tcp:9333 localabstract:webview_devtools_remote_<pid>`; NEVER
-  commit it (studio security rule). `adb shell input gamepad keyevent
-  KEYCODE_BUTTON_A` etc. drives the pad. Revoking file access needs
-  `appops set --uid … MANAGE_EXTERNAL_STORAGE deny`.
-- Releases are named by DATE, not x.y.z (owner, 2026-10-14: features land as
-  they make sense, there is no version roadmap). `scripts/release-android.sh
-  "notes"` tags `android-2026.10.14`, or `android-2026.10.14-2`, -3 … for more
-  that day; `.github/workflows/android-release.yml` builds, signs and
-  publishes `AddonForge-android-<name>.apk` (notes = tag message). The name has
-  no zero padding because it is also the Android versionName (semver) and is
-  baked in as `ADDONFORGE_RELEASE` (About shows it). versionCode =
-  YYYYMMDD*100 + n (2026101401), same formula as `selfupdate::release_code`,
-  also used as ADDONFORGE_BUILD. Early test releases android-v0.3.0-b1/b2 used
-  the old scheme and are ignored by the update check. Never reuse upstream's
-  Windows `v*-b*` tags that came with the fork. Signing key + passwords are
-  Actions secrets ANDROID_KEYSTORE_* / ANDROID_KEY_*; the original keystore is
-  ~/.android/addonforge-release.jks on the owner's Mac. BACK IT UP: losing it
-  means every user reinstalls. Obtainium can track these releases. Upstream's
-  daily stats.yml is not enabled on the fork (default branch is `android`).
-- Icons: `scripts/make-android-icons.sh` renders adaptive icons (foreground =
-  `src-tauri/icons/android/foreground.svg`, ember and anvil without the tile;
-  monochrome for Android 13 themed icons; background #18202C) through
-  `tauri icon` into a temp folder, so desktop icons are untouched.
-- Android system features (2026-10-14, build 2), all through the
-  `AddonForgeAndroid` bridge, wired in touch.js by REPLACING app.js globals
-  / handlers (`setBusy`, `toast`, `packageAction`, `checkUpdates`, the
-  btn-pick / btn-export / btn-import onclicks); app.js keeps the desktop versions:
-  - Folder: `pickFolder(id)` = system folder picker; the tree URI becomes a
-    path (`primary:` → /storage/emulated/0, `XXXX-XXXX:` → /storage/XXXX-XXXX).
-    `setGameFolder` retries with `/_classic_beta_` appended, so picking the
-    game root works. Pickers answer via `afResult(id, value|null)`.
-  - Export = `export_list` into `cacheDir()` + `share()` (share sheet);
-    import = `pickFile(id)` copies the document to cache/import.json.
-    `res/xml/file_paths.xml` only exposes cache + files/AddonForge (the
-    log). The old fixed Download/addonforge-list.json path is gone.
-  - "Share the log" in Report a problem; `keepAwake(bool)` while busy;
-    `haptic()` on Installed / Updated / Removed toasts; snackbar Undo for
-    Pin / Ignore; an offline banner, and checks refuse to run offline;
-    quiet re-check on resume after 10 min.
+- First run: #onboard explains "All files access"; the button calls
+  `requestFileAccess()`, then the app finds the game or the user picks it.
+- Bridge `AddonForgeAndroid` (JavascriptInterface, kept by a proguard rule):
+  hasFileAccess, requestFileAccess, showKeyboard, exit, pickFolder(id),
+  pickFile(id), cacheDir, share(path, mime, subject), keepAwake(bool),
+  haptic, takeLaunchAction. Pickers answer later via `afResult(id, value|null)`.
+  - Folder: the tree URI becomes a path (`primary:` → /storage/emulated/0,
+    `XXXX-XXXX:` → /storage/XXXX-XXXX); `setGameFolder` retries with
+    `/_classic_beta_` appended, so picking the game root works.
+  - Export = `export_list` into `cacheDir()` + `share()`; import =
+    `pickFile(id)` copies the document to cache/import.json.
+    `res/xml/file_paths.xml` only exposes cache + files/AddonForge (the log).
   - Launcher shortcut (res/xml/shortcuts.xml, long-press the icon): extra
     `af_action=update-all` → `takeLaunchAction()` / `afLaunch()` → check, then
     Update all. MainActivity is exported, so only that one value is honoured.
-- Decided by the owner (2026-10-14), don't re-propose: the catalogue and
-  stats.json stay fetched from Topher121/AddonForge (upstream) for now; no
-  layout for the Thor's bottom screen.
-- `scripts/android-smoke.sh [apk] [out]`: install, launch, walk every tab with
-  the pad, fail on a crash, screenshots of the top screen. Gotchas found while
-  testing: an attached WebView DevTools session itself sets KEEP_SCREEN_ON (so
-  test keep-awake without it), and `adb shell settings put system font_scale
-  1.3` is the quick large-font check (`settings delete system font_scale` to restore).
+- Full screen (system bars hidden, swipe to show), sensorLandscape, dark
+  window background, no leanback/TV entry.
+- Icons: `scripts/make-android-icons.sh` renders the adaptive icons
+  (foreground = `src-tauri/icons/android/foreground.svg`, monochrome for
+  themed icons, background #18202C) and copies `icon.svg` to `ui/icon.svg`.
+  `src-tauri/icons/icon.png` etc. remain for the Mac preview window.
 
-## Footprint (measured 2026-09-22, 20s idle after launch, private bytes)
-Exe ~5 MB on disk. v0.1.0: ~170 MB private total (app ~6 MB + six WebView2
-helper processes; working set ~350 MB but that double-counts shared Edge
-pages). v0.2.0 added `additionalBrowserArgs` in tauri.conf.json
-(`--disable-gpu --in-process-gpu --renderer-process-limit=1`, background
-networking/component-update/crash reporter off, plus
-`--enable-features=NetworkServiceInProcess2`): **~97 MB private**, five
-processes, GPU and network-service processes gone. WebView2 is the floor; going lower means a native egui window
-instead of a webview (big rewrite, not planned). Measure: Get-CimInstance
-Win32_Process filtered on the exe pid + msedgewebview2 whose CommandLine
-contains "addonforge", sum PrivateMemorySize64 (snippet in the 2026-09-22
-session). SECURITY (Chris 2026-10-01, studio rule — see ~/.claude/CLAUDE.md): the flags that
-disabled browser protections (`msSmartScreenProtection`, phishing detection, component
-updates, background networking) were REMOVED in build 15 and a strict CSP added in
-tauri.conf.json (self only, `img-src data:` for the base64 icons). `scripts/security-check.mjs`
-gates build.ps1 and `npm run check`: any protection-weakening flag, a missing/weak CSP, inline
-styles/scripts in ui/, or anything touching Defender fails the build. Never add them back for
-memory; the remaining flags (gpu, renderer limit, in-process network service, no extensions /
-crash reporter / sync / speech) are the memory savers and are not protections.
+## Building and testing on the Thor
+- `npx tauri android build --apk --target aarch64 --config
+  '{"bundle":{"android":{"versionCode":<installed code>}}}'` then
+  `adb install -r src-tauri/gen/android/app/build/outputs/apk/universal/release/app-universal-release.apk`.
+  Without the --config a local build is versionCode 3000 and Android refuses
+  it over a release as a downgrade; never go ABOVE the next real release's
+  code either (today's date ×100 + 1 is safe).
+- `adb shell input gamepad keyevent KEYCODE_BUTTON_A` etc. drives the pad.
+  Revoking file access: `appops set --uid … MANAGE_EXTERNAL_STORAGE deny`.
+- For poking the page live, add `WebView.setWebContentsDebuggingEnabled(true)`
+  locally and `adb forward tcp:9333 localabstract:webview_devtools_remote_<pid>`.
+  NEVER commit it: the security gate fails the build if you do. An attached
+  DevTools session itself sets KEEP_SCREEN_ON, so test keep-awake without it.
 
-## Installer (added 2026-09-22, build 6)
-`npx tauri build` (no `--no-bundle`) also produces an NSIS installer
-`AddonForge_<ver>_x64-setup.exe`; build.ps1 copies it to
-`build\AddonForge-Setup-v<ver>-b<n>.exe` and attaches it to the release
-beside the portable exe. Per-user install (no admin): exe + uninstaller in
-`%LOCALAPPDATA%\AddonForge\addonforge.exe`, Start-menu shortcut,
-Settings → Apps uninstall entry. Silent install: `-Setup.exe /S`.
-Self-update tells the two apart by filename: `AddonForge-v*-b*.exe` =
-portable (new file beside the old one), anything else = installed
-(rename running exe to `.exe.old`, put the new build at the SAME path so
-shortcuts keep working, new process deletes `.old`). Both paths tested
-against a local server 2026-09-22. latest.json always points at the raw
-exe, never the installer: an installed copy updates by swapping its exe.
-the owner installed build 6 on this PC that day.
+## Releases
+- Named by DATE, not x.y.z (owner, 2026-10-14: features land as they make
+  sense, no version roadmap). `scripts/release-android.sh "notes"` tags
+  `android-2026.10.14`, or `android-2026.10.14-2`, -3 … for more that day;
+  `.github/workflows/android-release.yml` builds, signs and publishes
+  `AddonForge-android-<name>.apk` (notes = tag message). The name has no zero
+  padding because it is also the Android versionName and is baked in as
+  `ADDONFORGE_RELEASE` (About shows it). versionCode = YYYYMMDD*100 + n
+  (2026101401), the same formula as `selfupdate::release_code`, also used as
+  `ADDONFORGE_BUILD`. Keep the two in step.
+- Update check: `api.github.com/repos/grutamu/AddonForge-android/releases/latest`
+  for an `.apk` asset on an `android-<date>` tag. Local builds (no
+  `ADDONFORGE_RELEASE`) never show the banner; `ADDONFORGE_UPDATE_URL`
+  overrides the API URL for trying it against a local file. "Get it" opens
+  the release page: no in-app installer. The What's-new note shows once
+  after an update (`whats_new`, `state.last_seen_build`).
+- Early test releases `android-v0.3.0-b1/b2` and upstream's Windows `v*-b*`
+  tags are ignored by the update check; never reuse them.
+- Signing key + passwords are Actions secrets ANDROID_KEYSTORE_* /
+  ANDROID_KEY_*; the original keystore is `~/.android/addonforge-release.jks`
+  on the owner's Mac. BACK IT UP: losing it means every user reinstalls.
+  Obtainium can track these releases.
 
-## v0.2.0 features (built 2026-09-22, all the owner-approved that day)
-- **Self-update**: build.ps1 writes `build\latest.json` ({version, build,
-  filename, url, size, notes}); `-Release` publishes a GitHub release
-  `v<ver>-b<n>` with the exe + latest.json. The app fetches
-  `releases/latest/download/latest.json` on launch (`ADDONFORGE_UPDATE_URL`
-  env overrides for testing), shows a banner, downloads the new exe BESIDE
-  the running one, starts it with `--replaced <old>`, exits; the new exe
-  deletes the old file. Build number is baked in via `ADDONFORGE_BUILD`
-  env at compile time (`option_env!`), 0 = dev build. Tested end-to-end
-  against a local server 2026-09-22, and live against the real release
-  URL the same day once the repo went public.
-- **Install from GitHub link** (Browse tab box; `--cli github owner/repo`):
-  key `github:<owner/repo>` unless the catalogue knows the repo. Managed
-  source wins over catalogue/TOC when picking where to update from.
-- **Pre-release toggle** (Settings → Updates; state `allow_prerelease`):
-  GitHub uses the API list (1 call per addon, 60/hr unauth) and prefers a
-  release's own release.json asset; Wago prefers beta over stable.
-- **Missing dependencies**: required deps (`## Dependencies` /
-  `RequiredDeps`, minus `Blizzard_*`) not on disk are listed per package
-  with an install button when the catalogue has them.
-- **Pin / Ignore** (state `pinned` / `ignored` sets): pinned = excluded
-  from Update All, still checked; ignored = hidden + not checked.
-- **Export / Import** (Settings → Your addon list): JSON
-  `{addonforge:1, flavor, addons:[{name,key,source,version,folders}]}`;
-  import shows a plan and installs the missing installable ones.
-- **Report a problem**: builds diagnostics (version, install, addon list,
-  last 40 log lines) → prefilled GitHub issue or mailto to the studio
-  address, plus copy-to-clipboard. Deliberately NOT the studio Firestore
-  reporter: this app promises no telemetry.
-- **Local log**: `%APPDATA%\AddonForge\addonforge.log`, 1 MB rotation,
-  `logi!`/`loge!` macros (src/log.rs). Never uploaded.
-- **Zip safety** (install.rs `safety_scan`): after extraction, refuse the
-  whole install if any file has an executable extension (exe/dll/bat/ps1/
-  js/…) or starts with an `MZ` header, or is a symlink. Unit-tested.
+## Security (studio rule, Chris 2026-10-01 — see ~/.claude/CLAUDE.md)
+Nothing we build may turn off a security protection. `scripts/security-check.mjs`
+fails the build on: a missing or weak CSP (tauri.conf.json: self only,
+`img-src data:` for the base64 icons), protection-weakening WebView flags,
+forced devtools, risky capabilities (shell / fs / http / process), inline
+scripts, styles or handlers or eval anywhere in ui/, WebView remote debugging
+in the Kotlin sources, a debuggable or cleartext manifest or release build,
+and anything touching Windows Defender / firewall settings. The gate may only
+gain checks. The zip safety scan, `remove_folders` checks and the 512 MB
+download cap are protections too.
 
-## Headless mode (use it to test; no window needed)
-`addonforge.exe --cli <cmd>` prints JSON: `installs` (drive scan, auto-picks
-the Forever install), `use <dir>`, `scan`, `check` (scan + remote versions),
-`catalog`, `resolve <id..>|all` (dry-run every catalogue entry — run this
-after editing the catalogue: 2026-09-22 result 91/92 GitHub entries OK),
-`update <key> [--force]`, `install <catalog-id> [--force]`. Same state file
-as the GUI. Debug exe at `src-tauri\target\debug\addonforge.exe`.
+## Upstream and ownership
+- Unofficial port: About and the README say so and credit upstream; the MIT
+  notice in LICENSE stays verbatim.
+- The CurseForge 3rd-party API approval (2026-09-28) and its open support
+  thread belong to Pocket Forge Studios, not this fork. Don't use or imply
+  it; any CurseForge work here would need the fork's own application.
+- Upstream's studio notes (PhoneApps page, Office orders, launch posts,
+  Windows build and installer, WebView2 footprint) are upstream history; see
+  Topher121/AddonForge's CLAUDE.md for them.
+
+## Feature notes (from upstream, still true here)
+- **Icons**: the addon's own `## IconTexture` file (TGA/BLP/PNG; BLP goes via
+  a raw RGBA buffer because image-blp pins an older image crate), else the
+  GitHub author avatar, else a lettered tile. Cached as 32px PNGs, handed to
+  the UI as data URLs and filled into rows in place.
+- **Download counts + sort**: catalog/stats.json (upstream's daily Action
+  sums GitHub release downloads; WoWI UIDownloadTotal). A copy is compiled in.
+- **Starter packs**: "bundles" in forever.json; the validator checks every id
+  exists. Never call a pack "Essentials" (upstream owner: nothing is essential).
+  The "New to addons?" guide lives in the Starter packs pane.
+- **Details**: GitHub entries get a README excerpt and the first real picture
+  from GitHub's rendered README (off-site images come through
+  camo.githubusercontent.com, so the app still only talks to GitHub). Cached
+  a day. One API call per addon opened.
+- **Catalogue**: whichever copy is NEWER by "updated" wins (bundled vs remote).
+- **Notices**: `notice` (<=160 chars) on a catalogue entry is shown as an
+  amber line. SVShim is LINK-ONLY: its zip ships `Start-SVShim.cmd`, which
+  the zip safety rule refuses.
+- **Featured strip**: catalogue `featured` entries whose dates cover today,
+  else entries `added` in the last 30 days, else the most recently updated.
+  `pickFeatured(today)` in app.js, unit-tested. Free, no paid placement.
+- **Install from GitHub link**, **pre-release toggle** (`allow_prerelease`),
+  **missing dependencies** with install buttons, **Pin / Ignore**,
+  **export / import** (`{addonforge:1, flavor, addons:[…]}`), **Report a
+  problem** (diagnostics → prefilled GitHub issue on the fork, or copy),
+  **local log** (1 MB rotation, never uploaded).
 
 ## Grouping rules (lib.rs `build_packages`)
 Folders → packages, in priority: (1) folders recorded in
@@ -385,67 +250,15 @@ folder name, then Wago/Curse/WoWI id; (3) TOC ids (`wago:` / `wowi:` /
 that declares `## X-Part-Of: Parent` or depends on a sibling sharing its
 name stem (`BigWigs_Sporefall`→`BigWigs_Core`→`BigWigs`, `DBM-GUI`→
 `DBM-Core`) inherits that parent's key. Display name = the group's root
-folder (nothing in the group depends on it), then shortest name. Unit tests
-cover this — keep them green.
+folder, then shortest name. Unit tests cover this — keep them green.
 
 ## Catalogue notes
-- 98 entries seeded 2026-09-22 from a research pass (GitHub code search for
-  `16001` in .toc files + wow4ever.quest / Warcraft Tavern lists). 91 have
-  GitHub releases; 6 are link-only (Leatrix, Baganator, Auctionator,
-  Platynator, Bagnon, Details) because the authors have no GitHub releases
-  and DMCA the mirrors — never seed `curseforge-mirror/*` or `hippuli/*`.
-- Some authors list 16001 in the TOC but not `forever` in release.json
-  (TellMeWhen, idTip, Molinari, IceHUD, Breakables, CharacterNotes…). Their
-  catalogue entry says `forever: true` and the app treats that as vouched
-  (no "not for Forever" prompt). If one turns out broken, flip the flag.
-- Per-flavour asset repos (d4kir92/*, Crasling, Jonathas-Conceicao) need
-  `asset_hint: "-forever"`; substring match, case-insensitive.
+- Never seed unofficial mirrors (`curseforge-mirror/*`, `hippuli/*`); several
+  authors DMCA them. Link-only entries exist for authors without GitHub
+  releases (Leatrix, Baganator, Auctionator, Platynator, Bagnon, Details).
+- Some authors list 16001 in the TOC but not `forever` in release.json; their
+  entry says `forever: true` and the app treats that as vouched.
+- Per-flavour asset repos need `asset_hint: "-forever"` (substring,
+  case-insensitive).
 - GitHub `releases/latest` ignores pre-releases, so prerelease-only Forever
-  builds (What's Training beta, Wayfinder) can't be installed yet.
-
-## Studio hooks
-- Ship = commit AND push. GitHub `Topher121/AddonForge` is **PUBLIC** (the owner
-  made the call 2026-09-22): the live catalogue fetch, pull-request
-  submissions and self-update all depend on that. Releases: `build.ps1
-  -Release` (or `-DeliverOnly -Release` to publish an existing build)
-  creates tag `v<ver>-b<n>` with the exe + latest.json. First public
-  release: v0.2.0-b3.
-- `build.ps1` (working since 2026-09-22): bumps `build.buildnum`, optional
-  `-SetVersion x.y.z` (syncs tauri.conf.json, Cargo.toml, package.json),
-  runs `cargo test`, `npx tauri build --no-bundle` with `ADDONFORGE_BUILD`
-  set, archives to `buildAddonForge-v<ver>-b<n>.exe` (keeps 5), writes
-  `buildlatest.json` + `build.note` (`-Note "..."`, omitted = previous),
-  and with `-Release` publishes the GitHub release. `-DeliverOnly -Release`
-  publishes the newest existing exe. Keep it ASCII-only (PS 5.1 chokes on
-  UTF-8 punctuation without a BOM).
-- **NOT on the PhoneApps page** (the owner 2026-09-22: it is a Windows tool,
-  GitHub Releases is the download). The PhoneApps folder + launcher card
-  were removed; `PhoneAppsprojects.json` keeps the desk entry (slug
-  `addonforge`, tenant `design`) with a note. Do not re-add a card.
-- Launcher card + `PhoneApps\projects.json` entry added 2026-09-22 (slug
-  `addonforge`, tenant `design`, phase proto 15%). Office write-backs go to
-  `tenant=design&project=addonforge`. Studio FAQ row added the same day.
-- Support email everywhere: PocketForgeStudios@proton.me. "Support the dev"
-  link (About tab + README) is the STUDIO Ko-fi: https://ko-fi.com/pocketforgestudios
-  (the owner set it up 2026-09-22 with a PayPal Business account
-  paypal.me/PocketForgeStudios underneath; both logged in the studio ledger +
-  FAQ). Never link a personal PayPal again; build 4 briefly did.
-- Related: the owner writes his own Forever addons in `Desktop\wow-addons`
-  (FishEasy, RepHelper — they show as "No source" here, which is correct).
-
-## Launch + queue (2026-09-22 evening)
-- ANNOUNCED on r/wowforever (the owner's account, Discussion flair, ~12
-  upvotes / 1.9K views / 3 friendly comments in the first hour; 2 real
-  downloads of b9 by 21:00). The announcement draft was public in docs/ for the launch buzz and removed 2026-09-24 (the owner's call); a copy is in private/ (gitignored).
-  r/wowaddons crosspost planned a day later; never r/wow (retail).
-- Feedback channels: GitHub issues (owner gets email; Report button
-  pre-fills), the Reddit thread, studio email, Ko-fi messages. Mention
-  Monitor now watches "AddonForge" / "Addon Forge" (NAS, daily 10:00).
-- Queued (all logged as Office orders, tenant design / project addonforge),
-  in this order: (1) addon icons, (2) download counts + sort via daily
-  stats.json Action, (3) ForeverSVFix detection reminder (issue #1),
-  (4) in-app "Send report" through the studio Firestore reporter, explicit
-  button + disclosure in About/README (the owner: leave for now, ship with the
-  icons build so the change and the disclosure land together).
-- Build numbers can have gaps: the second session built b7/b8 locally
-  without releasing; b9 is the first release with the new icon.
+  builds need the pre-release toggle.
