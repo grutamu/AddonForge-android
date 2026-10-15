@@ -1,13 +1,13 @@
-//! Download a release zip and swap it into `Interface\AddOns` safely.
+//! Download a release zip and swap it into `Interface/AddOns` safely.
 //!
 //! Layout rules:
-//!  - work happens inside `<AddOns>\.addonforge-tmp\` so the final step is a
-//!    same-volume rename (atomic per folder), never a slow cross-drive copy;
+//!  - work happens inside `<AddOns>/.addonforge-tmp/` so the final step is a
+//!    same-volume rename (atomic per folder), never a slow cross-volume copy;
 //!  - existing folders are moved aside first and restored if anything fails;
 //!  - the zip crate refuses paths that escape the extraction directory;
 //!  - the extracted tree is scanned and refused if it contains anything
 //!    executable (addons are Lua, XML, TOC and media, nothing else);
-//!  - SavedVariables live in `WTF\`, which we never touch.
+//!  - SavedVariables live in `WTF/`, which we never touch.
 
 use anyhow::{anyhow, Context};
 use futures_util::StreamExt;

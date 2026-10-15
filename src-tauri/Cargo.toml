@@ -22,7 +22,6 @@ reqwest = { version = "0.12", default-features = false, features = ["rustls-tls"
 tokio = { version = "1", features = ["rt-multi-thread", "macros", "fs", "sync", "io-util"] }
 futures-util = "0.3"
 zip = { version = "2", default-features = false, features = ["deflate"] }
-dirs = "5"
 anyhow = "1"
 image = { version = "0.25", default-features = false, features = ["png", "tga", "jpeg", "gif"] }
 image-blp = "1"
