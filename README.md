@@ -88,8 +88,8 @@ adb install -r src-tauri/gen/android/app/build/outputs/apk/universal/release/app
 ```
 
 Releases are built and signed by GitHub Actions: `scripts/release-android.sh "what changed"`
-tags the next `android-v<version>-b<build>` and the workflow publishes the APK. The
-releases work with [Obtainium](https://github.com/ImranR98/Obtainium) for automatic updates.
+tags today's release, named by date (`android-2026.10.14`, then `-2` for a second one that
+day), and the workflow publishes the APK. The releases work with [Obtainium](https://github.com/ImranR98/Obtainium) for automatic updates.
 
 ## Contributing
 

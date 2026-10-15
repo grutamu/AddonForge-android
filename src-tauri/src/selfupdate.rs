@@ -133,26 +133,35 @@ async fn android_latest(client: &reqwest::Client) -> anyhow::Result<Option<(Late
     let Some(apk) = r.assets.iter().find(|a| a.name.to_ascii_lowercase().ends_with(".apk")) else {
         return Ok(None);
     };
-    let (ver, num) = parse_tag(&r.tag_name);
-    let l = Latest { version: ver, build: num, url: r.html_url, filename: apk.name.clone(), notes: r.body, size: 0 };
-    let newer = android_is_newer(&l, version(), build());
+    // Older v0.3.0-bN style tags aren't dated releases: never "newer".
+    let Some((name, code)) = r.tag_name.strip_prefix("android-").and_then(|n| Some((n, release_code(n)?))) else {
+        return Ok(None);
+    };
+    let l = Latest { version: name.into(), build: code, url: r.html_url, filename: apk.name.clone(), notes: r.body, size: 0 };
+    let newer = release().and_then(release_code).is_some_and(|current| code > current);
     Ok(Some((l, newer)))
 }
 
-/// `android-v0.4.0-b17` / `v0.4.0-b17` → ("0.4.0", 17); `v0.4.0` → ("0.4.0", 0).
-pub fn parse_tag(tag: &str) -> (String, u32) {
-    let t = tag.trim().trim_start_matches("android-").trim_start_matches(['v', 'V']);
-    match t.split_once("-b") {
-        Some((v, b)) => (v.to_string(), b.parse().unwrap_or(0)),
-        None => (t.to_string(), 0),
-    }
+/// Android release name baked in by the release workflow (`ADDONFORGE_RELEASE`):
+/// the release date, `2026.10.14`, or `2026.10.14-2` for a second one that
+/// day. None for local builds, which never show the update banner.
+pub fn release() -> Option<&'static str> {
+    option_env!("ADDONFORGE_RELEASE").filter(|s| !s.is_empty())
 }
 
-/// Like `is_newer`, but a dev build (build 0) or an untagged build number
-/// only compares versions, so local builds aren't nagged forever.
-pub fn android_is_newer(l: &Latest, cur_version: &str, cur_build: u32) -> bool {
-    let (a, b) = (semver(&l.version), semver(cur_version));
-    a > b || (a == b && cur_build > 0 && l.build > cur_build)
+/// `2026.10.14` → 2026101401, `2026.10.14-2` → 2026101402: always increasing,
+/// and the APK's versionCode.
+pub fn release_code(name: &str) -> Option<u32> {
+    let (date, n) = match name.split_once('-') {
+        Some((d, n)) => (d, n.parse::<u32>().ok()?),
+        None => (name, 1),
+    };
+    let mut parts = date.split('.').map(|p| p.parse::<u32>().ok());
+    let (y, m, d) = (parts.next()??, parts.next()??, parts.next()??);
+    if parts.next().is_some() || !(2000..2100).contains(&y) || !(1..=12).contains(&m) || !(1..=31).contains(&d) || !(1..=99).contains(&n) {
+        return None;
+    }
+    Some((y * 10000 + m * 100 + d) * 100 + n)
 }
 
 /// Is this exe the portable download (`AddonForge-v0.2.0-b5.exe`) rather
@@ -247,14 +256,14 @@ mod tests {
     use super::*;
 
     #[test]
-    fn android_tags_and_dev_builds() {
-        assert_eq!(parse_tag("v0.4.0-b17"), ("0.4.0".into(), 17));
-        assert_eq!(parse_tag("v0.4.0"), ("0.4.0".into(), 0));
-        assert_eq!(parse_tag("android-v0.3.0-b2"), ("0.3.0".into(), 2));
-        let l = |v: &str, b| Latest { version: v.into(), build: b, ..Default::default() };
-        assert!(android_is_newer(&l("0.4.0", 0), "0.3.0", 0));
-        assert!(!android_is_newer(&l("0.3.0", 17), "0.3.0", 0), "dev builds only compare versions");
-        assert!(android_is_newer(&l("0.3.0", 17), "0.3.0", 16));
-        assert!(!android_is_newer(&l("0.3.0", 16), "0.3.0", 16));
+    fn android_release_names() {
+        assert_eq!(release_code("2026.10.14"), Some(2026101401));
+        assert_eq!(release_code("2026.10.14-2"), Some(2026101402));
+        assert_eq!(release_code("2026.1.5"), Some(2026010501));
+        assert!(release_code("2026.10.15").unwrap() > release_code("2026.10.14-9").unwrap());
+        assert!(release_code("2026.11.1").unwrap() > release_code("2026.10.31").unwrap());
+        for bad in ["v0.3.0-b2", "0.3.0", "2026.13.1", "2026.10.14-0", "2026.10.14.2", ""] {
+            assert_eq!(release_code(bad), None, "{bad}");
+        }
     }
 }

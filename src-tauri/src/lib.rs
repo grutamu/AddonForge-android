@@ -485,6 +485,8 @@ struct Settings {
     svfix: bool,
     /// `windows`, `android`, … so the UI can hide desktop-only controls.
     platform: String,
+    /// Android release name (`2026.10.14`); None for local and desktop builds.
+    release: Option<String>,
 }
 
 #[tauri::command]
@@ -511,6 +513,7 @@ async fn get_settings(app: State<'_, Shared>) -> Result<Settings, String> {
         start_tab: std::env::var("ADDONFORGE_TAB").ok().filter(|t| !t.is_empty()),
         svfix: st.install_path.as_deref().map(|p| wow::svfix_present(Path::new(p))).unwrap_or(false),
         platform: std::env::consts::OS.into(),
+        release: selfupdate::release().map(Into::into),
     })
 }
 

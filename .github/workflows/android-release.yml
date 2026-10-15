@@ -1,16 +1,17 @@
 name: Android release
 
 # Builds the signed APK for the AYN Thor and publishes it as a GitHub release.
-# Start one with scripts/release-android.sh, which pushes a tag like
-# android-v0.3.0-b1. The app's update banner and Obtainium both read these
-# releases (tag android-v<version>-b<build>, one .apk asset).
+# Start one with scripts/release-android.sh, which tags today's date:
+# android-2026.10.14, or android-2026.10.14-2 for a second release that day.
+# That name is the version users see; the app's update banner and Obtainium
+# both read these releases (one .apk asset each).
 on:
   push:
     tags: ["android-v*"]
   workflow_dispatch:
     inputs:
       tag:
-        description: "Existing tag to build again, e.g. android-v0.3.0-b1"
+        description: "Existing tag to build again, e.g. android-2026.10.14"
         required: true
 
 permissions:
@@ -26,19 +27,18 @@ jobs:
         with:
           ref: ${{ env.TAG }}
 
-      - name: Version and build number from the tag
+      - name: Release name and versionCode from the tag
         id: v
         run: |
-          [[ "$TAG" =~ ^android-v([0-9]+)\.([0-9]+)\.([0-9]+)-b([0-9]+)$ ]] || { echo "::error::Tag must look like android-v0.3.0-b1, got $TAG"; exit 1; }
-          ver="${BASH_REMATCH[1]}.${BASH_REMATCH[2]}.${BASH_REMATCH[3]}"
-          conf=$(node -p "require('./src-tauri/tauri.conf.json').version")
-          [ "$ver" = "$conf" ] || { echo "::error::Tag says $ver but tauri.conf.json says $conf"; exit 1; }
-          # Always increasing across releases: 0.3.0 build 1 -> 300001.
-          code=$(( BASH_REMATCH[1] * 10000000 + BASH_REMATCH[2] * 100000 + BASH_REMATCH[4] ))
-          echo "version=$ver" >> "$GITHUB_OUTPUT"
-          echo "build=${BASH_REMATCH[4]}" >> "$GITHUB_OUTPUT"
+          [[ "$TAG" =~ ^android-(20[0-9]{2})\.([1-9]|1[0-2])\.([1-9]|[12][0-9]|3[01])(-([1-9][0-9]?))?$ ]] || { echo "::error::Tag must look like android-2026.10.14 or android-2026.10.14-2, got $TAG"; exit 1; }
+          name="${TAG#android-}"
+          n="${BASH_REMATCH[5]:-1}"
+          # Always increasing: 2026.10.14 -> 2026101401, 2026.10.14-2 -> 2026101402
+          # (same formula as selfupdate::release_code).
+          code=$(( (BASH_REMATCH[1] * 10000 + BASH_REMATCH[2] * 100 + BASH_REMATCH[3]) * 100 + n ))
+          echo "name=$name" >> "$GITHUB_OUTPUT"
           echo "code=$code" >> "$GITHUB_OUTPUT"
-          echo "apk=AddonForge-android-v$ver-b${BASH_REMATCH[4]}.apk" >> "$GITHUB_OUTPUT"
+          echo "apk=AddonForge-android-$name.apk" >> "$GITHUB_OUTPUT"
 
       - uses: actions/setup-java@v5
         with:
@@ -76,11 +76,13 @@ jobs:
 
       - name: Build APK
         env:
-          ADDONFORGE_BUILD: ${{ steps.v.outputs.build }}
+          ADDONFORGE_RELEASE: ${{ steps.v.outputs.name }}
+          ADDONFORGE_BUILD: ${{ steps.v.outputs.code }}
         run: |
           export NDK_HOME="$ANDROID_NDK_LATEST_HOME"
+          # The release name is the Android versionName too (valid semver: no zero padding).
           npx tauri android build --apk --target aarch64 \
-            --config '{"bundle":{"android":{"versionCode":${{ steps.v.outputs.code }}}}}'
+            --config '{"version":"${{ steps.v.outputs.name }}","bundle":{"android":{"versionCode":${{ steps.v.outputs.code }}}}}'
           cp src-tauri/gen/android/app/build/outputs/apk/universal/release/app-universal-release.apk "${{ steps.v.outputs.apk }}"
 
       - name: Check the signature
@@ -92,7 +94,7 @@ jobs:
         env:
           GH_TOKEN: ${{ github.token }}
         run: |
-          title="AddonForge for Android v${{ steps.v.outputs.version }} build ${{ steps.v.outputs.build }}"
+          title="AddonForge for Android ${{ steps.v.outputs.name }}"
           if gh release view "$TAG" >/dev/null 2>&1; then
             gh release upload "$TAG" "${{ steps.v.outputs.apk }}" --clobber
           else
