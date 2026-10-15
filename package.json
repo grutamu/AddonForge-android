@@ -5,7 +5,6 @@
   "description": "Lightweight, telemetry-free WoW: Forever addon manager by Pocket Forge Studios",
   "scripts": {
     "dev": "tauri dev",
-    "build": "tauri build --no-bundle",
     "tauri": "tauri",
     "security-check": "node scripts/security-check.mjs",
     "check": "node scripts/security-check.mjs"
