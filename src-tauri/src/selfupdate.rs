@@ -71,6 +71,10 @@ pub async fn check(client: &reqwest::Client, url_override: Option<&str>) -> Self
         tag: String::new(),
         error: None,
     };
+    // The release feed is Windows exes; Android updates by installing a new APK.
+    if cfg!(target_os = "android") {
+        return out;
+    }
     let res = async {
         let r = client.get(url).send().await?.error_for_status()?;
         r.json::<Latest>().await

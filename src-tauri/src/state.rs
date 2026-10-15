@@ -59,6 +59,15 @@ impl AppState {
         if let Some(dir) = std::env::var_os("ADDONFORGE_STATE_DIR").filter(|v| !v.is_empty()) {
             return PathBuf::from(dir);
         }
+        #[cfg(target_os = "android")]
+        {
+            // No config dir on Android: use the app's private files folder,
+            // found from the package name the process runs under.
+            let cmdline = std::fs::read("/proc/self/cmdline").unwrap_or_default();
+            let pkg = String::from_utf8_lossy(cmdline.split(|b| *b == 0).next().unwrap_or_default()).to_string();
+            return PathBuf::from(format!("/data/data/{}/files", pkg.split(':').next().unwrap_or_default())).join("AddonForge");
+        }
+        #[cfg(not(target_os = "android"))]
         dirs::config_dir()
             .unwrap_or_else(|| PathBuf::from("."))
             .join("AddonForge")

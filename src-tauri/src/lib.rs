@@ -483,6 +483,8 @@ struct Settings {
     start_tab: Option<String>,
     /// ForeverSVFix is set up on this install (see `wow::svfix_present`).
     svfix: bool,
+    /// `windows`, `android`, … so the UI can hide desktop-only controls.
+    platform: String,
 }
 
 #[tauri::command]
@@ -508,6 +510,7 @@ async fn get_settings(app: State<'_, Shared>) -> Result<Settings, String> {
         support_email: SUPPORT_EMAIL.into(),
         start_tab: std::env::var("ADDONFORGE_TAB").ok().filter(|t| !t.is_empty()),
         svfix: st.install_path.as_deref().map(|p| wow::svfix_present(Path::new(p))).unwrap_or(false),
+        platform: std::env::consts::OS.into(),
     })
 }
 
@@ -948,6 +951,9 @@ async fn remove_package(app: State<'_, Shared>, key: String) -> Result<Vec<Strin
 async fn open_addons_folder(app: State<'_, Shared>) -> Result<String, String> {
     let install = current_install(&app).await?;
     let dir = addons_dir(&install);
+    if cfg!(target_os = "android") {
+        return Err(format!("Use a file manager to open {}", dir.display()));
+    }
     std::process::Command::new("explorer").arg(&dir).spawn().map_err(err)?;
     Ok(dir.to_string_lossy().to_string())
 }
@@ -957,6 +963,9 @@ async fn open_log() -> Result<String, String> {
     let p = log::path();
     if !p.exists() {
         std::fs::write(&p, "").map_err(err)?;
+    }
+    if cfg!(target_os = "android") {
+        return Err(format!("The log is at {}", p.display()));
     }
     std::process::Command::new("explorer")
         .arg(format!("/select,{}", p.display()))
@@ -1382,6 +1391,7 @@ pub fn cli(args: &[String]) -> i32 {
     }
 }
 
+#[cfg_attr(mobile, tauri::mobile_entry_point)]
 pub fn run() {
     logi!("AddonForge v{} build {} starting", selfupdate::version(), selfupdate::build());
     let app = make_app();
