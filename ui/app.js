@@ -397,7 +397,8 @@ async function rescan(keepStatus = false) {
   }
 }
 
-async function checkUpdates() {
+/// quiet: an automatic check only speaks up when there is something to update.
+async function checkUpdates(quiet = false) {
   setBusy(true);
   $("btn-check").innerHTML = '<span class="spinner"></span> Checking…';
   packages.forEach((p) => {
@@ -410,7 +411,7 @@ async function checkUpdates() {
     renderInstalled();
     const n = packages.filter((p) => p.status === "update" && !p.ignored && !p.pinned).length;
     const unchecked = packages.filter((p) => !p.ignored && p.status !== "ok" && p.status !== "update").length;
-    toast(n ? `${n} update${n === 1 ? "" : "s"} available` : unchecked ? `Check complete. ${unchecked} addon${unchecked === 1 ? " could" : "s could"} not be verified.` : "All checked addons are up to date");
+    if (n || !quiet) toast(n ? `${n} update${n === 1 ? "" : "s"} available` : unchecked ? `Check complete. ${unchecked} addon${unchecked === 1 ? " could" : "s could"} not be verified.` : "All checked addons are up to date");
   } catch (err) {
     toast(String(err), true);
   } finally {
@@ -425,7 +426,7 @@ async function updateAll() {
   toast(`Updated ${todo.length} addon${todo.length === 1 ? "" : "s"}`);
 }
 
-$("btn-check").onclick = checkUpdates;
+$("btn-check").onclick = () => checkUpdates();
 $("btn-rescan").onclick = () => rescan();
 $("btn-update-all").onclick = updateAll;
 

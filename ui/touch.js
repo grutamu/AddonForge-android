@@ -388,8 +388,18 @@
   });
   $("onboard-use").onclick = () => usePath($("onboard-path").value.trim());
   $("onboard-retry").onclick = onboard;
-  document.addEventListener("visibilitychange", () => {
-    if (document.visibilityState === "visible") onboard();
+  // Coming back from the launcher: check again if the last check is stale.
+  const RECHECK_MS = 10 * 60 * 1000;
+  let lastCheck = Date.now();
+  new MutationObserver(() => { lastCheck = Date.now(); }).observe($("last-checked"), { childList: true });
+  document.addEventListener("visibilitychange", async () => {
+    if (document.visibilityState !== "visible") return;
+    onboard();
+    if (!busy && settings?.install_path && A?.hasFileAccess() && Date.now() - lastCheck > RECHECK_MS) {
+      lastCheck = Date.now();
+      await rescan(true);
+      checkUpdates(true);
+    }
   });
   onboard();
 })();
