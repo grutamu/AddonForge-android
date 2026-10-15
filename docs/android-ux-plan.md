@@ -1,7 +1,10 @@
 # AddonForge on Android (AYN Thor): UX research and plan
 
 Status: P0 built 2026-10-14 (ui/touch.css, ui/touch.js, MainActivity) and
-tested on a Thor; see the Android section of CLAUDE.md. Deviations from
+tested on a Thor; see the Android section of CLAUDE.md. Later on 2026-10-14
+the Windows code was removed: this layout is now the only one (static in
+ui/index.html, styles in ui/style.css, input in ui/pad.js), so principle 10
+below ("Don't fork the desktop UI … Windows is untouched") no longer applies. Deviations from
 this plan: Starter packs and Settings keep a single list (the pane shows the
 guide / nothing), the "Show ignored" switch and Check live in the pane home
 rather than a ⋮ menu, and START runs Check for updates. P1/P2 are open.
@@ -314,7 +317,7 @@ launch, compare against the latest GitHub release. Either add an `android`
 block (`version`, `build`, `apk` name) to `latest.json`, or look for an
 `.apk` asset on `releases/latest`. If newer, show **one line at the top of
 the list column**: "AddonForge v0.4.0 is out · **Get it** · Not now".
-**Get it** opens `https://github.com/Topher121/AddonForge/releases/latest`
+**Get it** opens the fork's release page (`grutamu/AddonForge-android`)
 in the browser. It must be reachable by D-pad, and "Not now" remembers the
 build like "Skip this one" does today. No in-app installer.
 

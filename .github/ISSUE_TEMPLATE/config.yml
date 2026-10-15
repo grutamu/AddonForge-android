@@ -1,0 +1,9 @@
+# The catalogue and featuring are run by the original AddonForge project;
+# this fork only files Android problems.
+contact_links:
+  - name: Add an addon to the catalogue
+    url: https://github.com/Topher121/AddonForge/issues/new?template=addon.yml
+    about: The catalogue is maintained by the original AddonForge. Ask there.
+  - name: Feature my addon
+    url: https://github.com/Topher121/AddonForge/issues/new?template=feature.yml
+    about: Featuring is run by the original AddonForge, free. Authors ask there.
