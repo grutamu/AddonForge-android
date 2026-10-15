@@ -40,6 +40,8 @@ node scripts/security-check.mjs       # CSP, no inline scripts, no debuggable or
 
 Then on a device: `scripts/android-smoke.sh path/to/app.apk` installs the APK, walks every tab with the gamepad, fails on a crash and saves screenshots.
 
+The full testing guide, including the manual checks on the Thor and the test history, is in [docs/testing.md](docs/testing.md).
+
 ### Releases
 
 Releases are named by date and built and signed by GitHub Actions. `scripts/release-android.sh "what changed"` tags today's release (`android-2026.10.14`, then `-2` for a second one that day) and the workflow publishes the APK. Only the maintainer can release, because only the maintainer has the signing key.
