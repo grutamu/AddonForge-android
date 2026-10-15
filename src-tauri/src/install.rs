@@ -243,26 +243,25 @@ pub fn remove_folders(addons_dir: &Path, folders: &[String]) -> anyhow::Result<V
 mod tests {
     use super::*;
 
-    /// ForeverSVFix puts a directory link inside addon folders that points at
-    /// the user's SavedVariables. Replacing or cleaning up an addon folder must
-    /// remove the link, never what it points to.
+    /// A directory link inside an addon folder (ForeverSVFix made these on
+    /// Windows, pointing at the user's SavedVariables) must be removed with the
+    /// folder, never followed into what it points to. Unix covers the Mac host
+    /// and Android.
     #[test]
-    #[cfg(windows)]
-    fn removing_a_folder_never_follows_a_junction() {
-        let root = std::env::temp_dir().join(format!("af-junction-{}", unique()));
+    #[cfg(unix)]
+    fn removing_a_folder_never_follows_a_link() {
+        let root = std::env::temp_dir().join(format!("af-link-{}", unique()));
         let saved = root.join("WTF").join("SavedVariables");
         fs::create_dir_all(&saved).unwrap();
         fs::write(saved.join("Addon.lua"), "keep me").unwrap();
-        let addon = root.join("AddOns").join("Addon");
+        let addons = root.join("AddOns");
+        let addon = addons.join("Addon");
         fs::create_dir_all(&addon).unwrap();
-        let link = addon.join("ForeverSVFixData");
-        let made = std::process::Command::new("cmd")
-            .args(["/c", "mklink", "/J", &link.to_string_lossy(), &saved.to_string_lossy()])
-            .output()
-            .unwrap();
-        assert!(made.status.success(), "mklink failed: {}", String::from_utf8_lossy(&made.stderr));
-        assert!(link.join("Addon.lua").exists(), "junction should expose the file");
-        fs::remove_dir_all(&addon).unwrap();
+        let link = addon.join("LinkedData");
+        std::os::unix::fs::symlink(&saved, &link).unwrap();
+        assert!(link.join("Addon.lua").exists(), "the link should expose the file");
+        let gone = remove_folders(&addons, &["Addon".to_string()]).unwrap();
+        assert_eq!(gone, vec!["Addon".to_string()]);
         assert!(!addon.exists());
         assert!(saved.join("Addon.lua").exists(), "the linked SavedVariables file must survive");
         let _ = fs::remove_dir_all(&root);
