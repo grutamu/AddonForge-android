@@ -1018,13 +1018,8 @@ async function checkSelf(manual = false) {
     return;
   }
   if (selfUpdate.available && selfUpdate.latest) {
-    const l = selfUpdate.latest;
-    if (isAndroid()) {
-      // Android installs the APK itself: send the user to the release page.
-      $("selfupdate-text").innerHTML = `AddonForge <b>${esc(l.version)}</b> is out.`;
-      $("selfupdate-go").textContent = "Get it";
-      $("selfupdate-skip").textContent = "Not now";
-    } else $("selfupdate-text").innerHTML = `A new version of AddonForge is available (<b>v${esc(l.version)}</b> build ${esc(l.build)}). Please update to the latest.`;
+    // Android installs the APK itself: the banner links to the release page.
+    $("selfupdate-text").innerHTML = `AddonForge <b>${esc(selfUpdate.latest.version)}</b> is out.`;
     $("selfupdate").classList.remove("hidden");
   } else {
     $("selfupdate").classList.add("hidden");
@@ -1036,20 +1031,7 @@ $("selfupdate-skip").onclick = async () => {
   await invoke("skip_self_update", { tag: selfUpdate.tag }).catch(() => {});
   $("selfupdate").classList.add("hidden");
 };
-$("selfupdate-go").onclick = async () => {
-  if (isAndroid()) return selfUpdate?.latest?.url && openUrl(selfUpdate.latest.url);
-  const go = $("selfupdate-go");
-  go.innerHTML = '<span class="spinner"></span> Downloading';
-  go.disabled = true;
-  try {
-    await invoke("apply_self_update");
-    $("selfupdate-text").textContent = "Downloaded. Restarting into the new version…";
-  } catch (err) {
-    toast(String(err), true);
-    go.textContent = "Update now";
-    go.disabled = false;
-  }
-};
+$("selfupdate-go").onclick = () => selfUpdate?.latest?.url && openUrl(selfUpdate.latest.url);
 
 // ---------------------------------------------------------------- boot
 (async () => {
