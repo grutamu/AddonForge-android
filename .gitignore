@@ -7,7 +7,3 @@ dist/
 .DS_Store
 Thumbs.db
 private/
-
-# Local planning notes; not published.
-docs/windows-cleanup-plan.md
-docs/android-ux-plan.md
