@@ -248,9 +248,22 @@ Target is ONLY the Thor's top screen in landscape (~833x469 CSS px, Android
   commit it (studio security rule). `adb shell input gamepad keyevent
   KEYCODE_BUTTON_A` etc. drives the pad. Revoking file access needs
   `appops set --uid … MANAGE_EXTERNAL_STORAGE deny`.
+- Releases (2026-10-14): `scripts/release-android.sh "notes"` tags the next
+  `android-v<ver>-b<n>` (own counter; the fork also carries upstream's Windows
+  `v*-b*` tags, never reuse those) and `.github/workflows/android-release.yml`
+  builds, signs and publishes `AddonForge-android-v<ver>-b<n>.apk` (notes =
+  tag message). Signing key + passwords are Actions secrets ANDROID_KEYSTORE_*
+  / ANDROID_KEY_*; the original keystore is ~/.android/addonforge-release.jks
+  on the owner's Mac. BACK IT UP: losing it means every user reinstalls.
+  versionCode = major*10^7 + minor*10^5 + build (0.3.0 b1 = 300001);
+  ADDONFORGE_BUILD = build. Obtainium can track these releases. Upstream's
+  daily stats.yml is not enabled on the fork (default branch is `android`).
+- Icons: `scripts/make-android-icons.sh` renders adaptive icons (foreground =
+  `src-tauri/icons/android/foreground.svg`, ember and anvil without the tile;
+  monochrome for Android 13 themed icons; background #18202C) through
+  `tauri icon` into a temp folder, so desktop icons are untouched.
 - Not done yet (P1/P2 in the plan): system folder picker, share-sheet
-  export/import, snackbar Undo, auto-check on resume, Android launcher icons
-  (still Tauri's default; `tauri icon` would also rewrite the desktop icons).
+  export/import, snackbar Undo, auto-check on resume.
 
 ## Footprint (measured 2026-09-22, 20s idle after launch, private bytes)
 Exe ~5 MB on disk. v0.1.0: ~170 MB private total (app ~6 MB + six WebView2
