@@ -2,6 +2,20 @@
 const assert = require('node:assert/strict');
 const fs = require('node:fs');
 const vm = require('node:vm');
+// The fake DOM below makes up any id it's asked for, so it can't notice markup
+// that was deleted. Check every literal $("id") / getElementById("id") in ui/*.js
+// against index.html (and ids the scripts create in their own templates).
+{
+  const html = fs.readFileSync('ui/index.html', 'utf8');
+  const scripts = fs.readdirSync('ui').filter((f) => f.endsWith('.js')).map((f) => [f, fs.readFileSync(`ui/${f}`, 'utf8')]);
+  const ids = (text) => [...text.matchAll(/\sid="([^"$]+)"/g)].map((m) => m[1]);
+  const have = new Set([html, ...scripts.map(([, s]) => s)].flatMap(ids));
+  for (const [f, s] of scripts) {
+    const used = [...s.matchAll(/(?:\$|getElementById)\(\s*["']([^"']+)["']\s*\)/g)].map((m) => m[1]);
+    const missing = [...new Set(used)].filter((id) => !have.has(id));
+    assert.deepEqual(missing, [], `ui/${f} uses ids that are not in ui/index.html: ${missing.join(', ')}`);
+  }
+}
 const nodes = new Map();
 function element(id) {
   if (!nodes.has(id)) nodes.set(id, {
