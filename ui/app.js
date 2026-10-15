@@ -2,6 +2,9 @@
 const T = window.__TAURI__;
 const invoke = T.core.invoke;
 const openUrl = (u) => T.opener.openUrl(u).catch((e) => toast(String(e), true));
+// The Thor's bridge to MainActivity (pickers, sharing, keyboard, screen on);
+// undefined in the Mac preview and in scripts/test-ui.js.
+const A = window.AddonForgeAndroid;
 
 const $ = (id) => document.getElementById(id);
 const esc = (s) => String(s ?? "").replace(/[&<>"']/g, (c) => ({ "&": "&amp;", "<": "&lt;", ">": "&gt;", '"': "&quot;", "'": "&#39;" }[c]));
@@ -12,6 +15,7 @@ let busy = false;
 let settings = null;
 let selfUpdate = null;
 let activeFilter = "all";
+let sortMode = "name";
 let bundles = [];
 let featuredRaw = []; // catalogue "featured" list; what applies today is worked out in renderFeatured
 const icons = new Map(); // "p:<package key>" / "c:<catalogue id>" -> data URL, or null when there is none
@@ -59,6 +63,8 @@ function ago(iso) {
 
 let toastTimer;
 function toast(msg, bad = false) {
+  // A finished install gives a small haptic tick.
+  if (!bad && /^(Installed|Imported|Updated|Removed)|is now /.test(msg)) A?.haptic();
   const t = $("toast");
   t.textContent = msg;
   t.className = "toast show" + (bad ? " bad" : "");
@@ -94,6 +100,8 @@ function confirmModal(html, yes = "Continue") {
 }
 
 function setBusy(b) {
+  // Installs keep the screen on, so a long Update all isn't cut off by sleep.
+  if (b !== busy) A?.keepAwake(b);
   busy = b;
   document.querySelectorAll(".btn").forEach((el) => {
     if (el.id === "modal-yes" || el.id === "modal-no") return;
@@ -129,6 +137,9 @@ document.addEventListener("click", (e) => {
 // ---------------------------------------------------------------- tabs
 document.querySelectorAll(".tab").forEach((btn) =>
   btn.addEventListener("click", () => {
+    // The pane shows the tab's home; leaving a tab closes its details.
+    if (detailId) closeDetail();
+    document.body.dataset.tab = btn.dataset.tab;
     document.querySelectorAll(".tab").forEach((b) => {
       b.classList.toggle("active", b === btn);
       if (b === btn) b.setAttribute("aria-current", "page");
@@ -166,11 +177,15 @@ function renderInstalled() {
   const list = $("installed-list");
   const rows = visiblePackages();
   $("stat-total").textContent = packages.length;
-  $("stat-total-word").textContent = packages.length === 1 ? "addon" : "addons";
   const updatesDue = packages.filter((p) => p.status === "update" && !p.ignored).length;
   $("stat-updates").textContent = updatesDue;
-  $("stat-updates-word").textContent = updatesDue === 1 ? "update" : "updates";
-  $("stat-attention").textContent = packages.filter((p) => !p.ignored && needsAttention(p)).length;
+  const attention = packages.filter((p) => !p.ignored && needsAttention(p)).length;
+  $("stat-attention").textContent = attention;
+  $("rail-badge").textContent = updatesDue;
+  $("rail-badge").classList.toggle("hidden", !updatesDue);
+  const counts = { all: packages.filter((p) => $("show-ignored").checked || !p.ignored).length, updates: updatesDue, attention };
+  document.querySelectorAll("#view-chips .fchip").forEach((b) => { b.querySelector("b").textContent = counts[b.dataset.value] ?? ""; });
+  $("pane-folder").textContent = settings?.install_path ? `Game folder: ${settings.install_path.replace(/^\/storage\/emulated\/0\//, "")}` : "No game folder yet";
   const eligible = packages.filter((p) => p.status === "update" && !p.pinned && !p.ignored).length;
   $("btn-update-all").textContent = eligible ? `Update all (${eligible})` : "Update all";
   if (!packages.length) {
@@ -232,8 +247,23 @@ function renderInstalled() {
 
 $("installed-filter").addEventListener("input", renderInstalled);
 $("show-ignored").addEventListener("change", renderInstalled);
-$("installed-view").addEventListener("change", (e) => {
-  activeFilter = e.target.value;
+// Chips instead of dropdowns: a pad can't open a <select>'s picker.
+function chipRow(id, pick) {
+  $(id).addEventListener("click", (e) => {
+    const b = e.target.closest(".fchip");
+    if (!b) return;
+    setChip(id, b.dataset.value);
+    pick(b.dataset.value);
+  });
+}
+function setChip(id, value) {
+  document.querySelectorAll(`#${id} .fchip`).forEach((b) => {
+    b.classList.toggle("active", b.dataset.value === value);
+    b.setAttribute("aria-checked", b.dataset.value === value);
+  });
+}
+chipRow("view-chips", (v) => {
+  activeFilter = v;
   renderInstalled();
 });
 
@@ -242,7 +272,7 @@ $("installed-list").addEventListener("click", async (e) => {
     $("installed-filter").value = "";
     $("show-ignored").checked = true;
     activeFilter = "all";
-    $("installed-view").value = "all";
+    setChip("view-chips", "all");
     renderInstalled();
     return;
   }
@@ -261,7 +291,7 @@ $("installed-list").addEventListener("click", async (e) => {
 });
 
 // One addon's actions, from its row or the details pane.
-async function packageAction(act, p, btn) {
+async function packageAction(act, p, btn, undoing = false) {
   const key = p.key;
   if (act === "update") await updateOne(p);
   if (act === "dep") {
@@ -275,6 +305,12 @@ async function packageAction(act, p, btn) {
       await rescan(true);
     } catch (err) {
       toast(String(err), true);
+    }
+    // Pin and Ignore are one press to undo.
+    const now = packages.find((x) => x.key === key);
+    if (!undoing && now && (now.pinned !== p.pinned || now.ignored !== p.ignored)) {
+      const done = act === "pin" ? (now.pinned ? "pinned" : "can update again") : now.ignored ? "ignored" : "shown again";
+      snackbar(`${now.name} ${done}`, () => packageAction(act, now, btn, true));
     }
   }
   if (act === "remove") {
@@ -292,6 +328,18 @@ async function packageAction(act, p, btn) {
       setBusy(false);
     }
   }
+}
+
+let snackTimer;
+function snackbar(text, undo) {
+  $("snackbar-text").textContent = text;
+  $("snackbar-undo").onclick = async () => {
+    $("snackbar").classList.add("hidden");
+    await undo();
+  };
+  $("snackbar").classList.remove("hidden");
+  clearTimeout(snackTimer);
+  snackTimer = setTimeout(() => $("snackbar").classList.add("hidden"), 6000);
 }
 
 function explainError(err) {
@@ -360,6 +408,11 @@ async function rescan(keepStatus = false) {
 
 /// quiet: an automatic check only speaks up when there is something to update.
 async function checkUpdates(quiet = false) {
+  // Offline: one clear message instead of a red error on every addon.
+  if (window.navigator?.onLine === false) {
+    if (!quiet) toast("You're offline. Connect to Wi-Fi to check for updates.", true);
+    return;
+  }
   setBusy(true);
   $("btn-check").innerHTML = '<span class="spinner"></span> Checking…';
   packages.forEach((p) => {
@@ -387,13 +440,16 @@ async function updateAll() {
   toast(`Updated ${todo.length} addon${todo.length === 1 ? "" : "s"}`);
 }
 
-$("btn-check").onclick = () => checkUpdates();
-$("btn-rescan").onclick = () => rescan();
+// Check re-reads the AddOns folder first, so there is no separate Rescan.
+$("btn-check").onclick = async () => {
+  await rescan(true);
+  await checkUpdates();
+};
 $("btn-update-all").onclick = updateAll;
 
 // ---------------------------------------------------------------- browse
 function sortedCatalog(rows) {
-  const by = $("browse-sort").value || "name";
+  const by = sortMode;
   const name = (a, b) => a.name.localeCompare(b.name, undefined, { sensitivity: "base" });
   if (by === "downloads") return rows.sort((a, b) => (b.downloads || 0) - (a.downloads || 0) || name(a, b));
   if (by === "updated") return rows.sort((a, b) => String(b.updated_at || "").localeCompare(String(a.updated_at || "")) || name(a, b));
@@ -422,7 +478,6 @@ function renderCatalog() {
         })
         .join("")
     : `<div class="empty">Nothing matches.</div>`;
-  $("browse-summary").textContent = `${rows.length} of ${catalog.length}`;
   setBusy(busy);
 }
 
@@ -442,7 +497,10 @@ async function loadCatalog(refresh) {
 }
 
 $("browse-filter").addEventListener("input", renderCatalog);
-$("browse-sort").addEventListener("change", renderCatalog);
+chipRow("sort-chips", (v) => {
+  sortMode = v;
+  renderCatalog();
+});
 
 // ---------------------------------------------------------------- details window
 let detailId = null;
@@ -607,8 +665,8 @@ function renderFeatured() {
 }
 
 $("featured-list").addEventListener("click", async (e) => {
-  const d = e.target.closest("[data-detail]");
-  if (d) return openDetail(d.dataset.detail);
+  const card = e.target.closest(".feat");
+  if (card && !e.target.closest("button")) return openDetail(card.dataset.id);
   const btn = e.target.closest("button[data-act=install]");
   if (!btn || busy) return;
   const entry = catalog.find((x) => x.id === btn.closest(".feat").dataset.id);
@@ -685,8 +743,8 @@ $("bundle-list").addEventListener("click", async (e) => {
 });
 $("btn-catalog-refresh").onclick = () => loadCatalog(true);
 $("browse-list").addEventListener("click", async (e) => {
-  const d = e.target.closest("[data-detail]");
-  if (d && !e.target.closest("a")) return openDetail(d.dataset.detail);
+  const row = e.target.closest(".item[data-id]");
+  if (row && !e.target.closest("button, a")) return openDetail(row.dataset.id);
   const btn = e.target.closest("button[data-act=install]");
   if (!btn || busy) return;
   const id = btn.closest(".item").dataset.id;
@@ -773,17 +831,6 @@ async function loadSettings() {
   $("catalog-info").textContent = settings.catalog_count
     ? `${settings.catalog_count} addons · ${settings.catalog_source === "remote" ? "latest from GitHub" : "built-in copy (GitHub copy unreachable)"}${settings.catalog_updated ? " · " + settings.catalog_updated : ""}`
     : "not loaded yet";
-  $("install-line").textContent = settings.install
-    ? "Game folder connected"
-    : "No game folder selected — choose one in Settings";
-  $("install-line").classList.toggle("connected", !!settings.install);
-  // touch.js points the folder button and export / import at Android's own
-  // pickers and share sheet.
-  document.body.classList.add("android");
-  $("install-path").placeholder = "/storage/emulated/0/Download/World of Warcraft/_classic_beta_";
-  $("btn-pick").textContent = "Choose folder…";
-  $("btn-export").textContent = "Share my list…";
-  $("btn-import").textContent = "Import a list…";
 }
 
 async function detect() {
@@ -823,6 +870,49 @@ async function savePath() {
   }
 }
 
+// ---------------------------------------------------------------- Android pickers and sharing
+// MainActivity answers pickers later with afResult(id, value); value is null when cancelled.
+const replies = new Map();
+let replySeq = 0;
+window.afResult = (id, value) => {
+  if (id === "share-error") return toast(value, true);
+  replies.get(id)?.(value);
+  replies.delete(id);
+};
+function ask(method) {
+  if (!A) return Promise.resolve(null);
+  return new Promise((resolve) => {
+    const id = `r${++replySeq}`;
+    replies.set(id, resolve);
+    A[method](id);
+  });
+}
+// A picked folder may be the game folder or the _classic_beta_ inside it.
+async function setGameFolder(path) {
+  try {
+    return await invoke("set_install_path", { path });
+  } catch (err) {
+    try {
+      return await invoke("set_install_path", { path: `${path.replace(/\/$/, "")}/_classic_beta_` });
+    } catch (_) {
+      throw err;
+    }
+  }
+}
+
+$("btn-pick").onclick = async () => {
+  const path = await ask("pickFolder");
+  if (!path) return;
+  try {
+    const info = await setGameFolder(path);
+    toast(`Managing ${info.label}`);
+    await loadSettings();
+    await rescan();
+    checkUpdates(true);
+  } catch (err) {
+    toast(String(err), true);
+  }
+};
 $("btn-detect").onclick = detect;
 $("btn-save-path").onclick = savePath;
 $("btn-save-key").onclick = async () => {
@@ -852,7 +942,27 @@ $("pref-prerelease").addEventListener("change", async (e) => {
 });
 
 // ---------------------------------------------------------------- export / import
-// touch.js wires Export and Import to the share sheet and the file picker.
+// The list goes out through the share sheet and comes back through the file picker.
+$("btn-export").onclick = async () => {
+  if (!A) return;
+  try {
+    const path = `${A.cacheDir()}/addonforge-list.json`;
+    const n = await invoke("export_list", { path });
+    A.share(path, "application/json", "My AddonForge addon list");
+    toast(`${n} addon${n === 1 ? "" : "s"} in the list`);
+  } catch (err) {
+    toast(String(err), true);
+  }
+};
+$("btn-import").onclick = async () => {
+  const path = await ask("pickFile");
+  if (!path) return;
+  try {
+    renderImportPlan(await invoke("import_list", { path }));
+  } catch (err) {
+    toast(String(err), true);
+  }
+};
 
 function renderImportPlan(plan) {
   const box = $("import-plan");
@@ -904,6 +1014,7 @@ $("btn-copy-diag").onclick = async () => {
     toast(String(err), true);
   }
 };
+$("btn-share-log").onclick = () => settings?.state_file && A?.share(settings.state_file.replace(/[^/]+$/, "addonforge.log"), "text/plain", "AddonForge log");
 $("btn-report-gh").onclick = async () => {
   try {
     const d = await diag();
@@ -989,3 +1100,9 @@ document.addEventListener("visibilitychange", async () => {
   await loadSettings();
   if (settings?.install_path) { await rescan(); checkUpdates(); }
 });
+
+// Offline: one clear line under the update banner.
+const showNet = () => $("offline").classList.toggle("hidden", navigator.onLine);
+addEventListener("online", showNet);
+addEventListener("offline", showNet);
+showNet();
