@@ -73,7 +73,7 @@ Start WoW from your launcher. On the character-select screen there is an **AddOn
 
 ## Something wrong?
 
-In the app: **Settings → Report a problem → Report on GitHub**. It opens a new issue with a diagnostics report filled in (version, game folder, addon list, last few log lines). Nothing is sent until you press submit, and you can read it first. Or [open an issue](https://github.com/grutamu/AddonForge-android/issues) yourself.
+In the app: **Settings → Report a problem → Report on GitHub**. It opens a new issue (you need a GitHub account) and copies a diagnostics report (version, game folder, addon list, last few log lines) for you to paste in; a short one is filled in for you. Nothing is sent until you press submit, and you can read it first. Or [open an issue](https://github.com/grutamu/AddonForge-android/issues) yourself.
 
 ## Where addons come from
 

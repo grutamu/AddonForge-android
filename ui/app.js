@@ -908,7 +908,9 @@ $("btn-report-gh").onclick = async () => {
     const d = await diag();
     const body = "**What happened?**\n\n(describe it here)\n\n**Diagnostics**\n```\n" + d.slice(0, 5000) + "\n```";
     const url = `${settings.repo_url}/issues/new?title=${encodeURIComponent("Problem: ")}&body=${encodeURIComponent(body)}`;
-    if (url.length > 7500) {
+    // Signed-out visitors are bounced to GitHub's login with this URL packed
+    // into return_to; GitHub errors on that once the URL is a few KB.
+    if (url.length > 2000) {
       await copyText(d);
       toast("Diagnostics copied, paste them into the issue");
       openUrl(`${settings.repo_url}/issues/new?title=${encodeURIComponent("Problem: ")}`);
