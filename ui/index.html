@@ -7,17 +7,15 @@
 <link rel="stylesheet" href="style.css">
 <link rel="stylesheet" href="touch.css">
 </head>
-<body>
+<body class="android" data-tab="installed">
 <header class="top">
   <div class="brand">
     <img src="icon.svg" alt="" class="mark">
     <span class="name">AddonForge</span>
-
   </div>
-  <button class="game-settings" data-navigate="settings" title="View or change your WoW installation folder">WoW: Forever <span>Installation settings</span></button>
 </header>
   <nav class="tabs" aria-label="Main navigation">
-    <button class="tab active" data-tab="installed" aria-current="page">My addons</button>
+    <button class="tab active" data-tab="installed" aria-current="page">My addons<span id="rail-badge" class="rail-badge hidden"></span></button>
     <button class="tab" data-tab="browse">Find addons</button>
     <button class="tab" data-tab="start">Starter packs</button>
     <button class="tab" data-tab="settings">Settings</button>
@@ -29,28 +27,20 @@
   <button id="selfupdate-go" class="btn primary small">Get it</button>
   <button id="selfupdate-skip" class="btn small">Not now</button>
 </div>
+<div id="offline" class="banner offline hidden">No internet connection. Checking and installing addons need Wi-Fi.</div>
 
 <main>
   <section id="tab-installed" class="panel active">
     <div class="toolbar installed-toolbar">
-      <input id="installed-filter" type="search" placeholder="Search addons" aria-label="Search installed addons">
-      <select id="installed-view" aria-label="Filter addons"><option value="all">All addons</option><option value="updates">Updates available</option><option value="attention">Needs attention</option></select>
-      <span class="grow"></span>
-      <button id="btn-rescan" class="btn" title="Read the AddOns folder again">Rescan</button>
-      <button id="btn-check" class="btn">Check for updates</button>
-      <button id="btn-update-all" class="btn primary" disabled>Update all</button>
-    </div>
-    <div class="strip">
-      <span><b id="stat-total">0</b> <span id="stat-total-word">addons</span> · <b id="stat-updates">0</b> <span id="stat-updates-word">updates</span> available</span>
-      <span class="attention-count"><b id="stat-attention">0</b> need attention</span>
+      <input id="installed-filter" type="search" placeholder="Search" aria-label="Search installed addons">
+      <div id="view-chips" class="chip-row" role="radiogroup" aria-label="Show">
+        <button class="fchip active" data-value="all" role="radio" aria-checked="true">All<b></b></button>
+        <button class="fchip" data-value="updates" role="radio" aria-checked="false">Updates<b></b></button>
+        <button class="fchip" data-value="attention" role="radio" aria-checked="false">Needs attention<b></b></button>
+      </div>
       <span id="summary" class="sr-only" role="status"></span>
-      <span class="grow"></span><label class="chk"><input type="checkbox" id="show-ignored"> Show ignored</label>
-      <span id="last-checked">Not checked yet</span>
     </div>
     <div class="addon-table">
-      <div class="thead cols-installed" aria-hidden="true">
-        <span>Addon</span><span>Installed</span><span>Available</span><span>Source</span><span>Status</span><span></span>
-      </div>
       <div id="installed-list" class="list"></div>
     </div>
   </section>
@@ -62,43 +52,19 @@
       <p class="hint">Featuring is free and always will be. Authors: <a href="#" data-url="https://github.com/Topher121/AddonForge/issues/new?template=feature.yml">ask to be featured</a> and pick a week.</p>
     </div>
     <div class="toolbar">
-      <input id="browse-filter" type="search" placeholder="Filter the catalogue" aria-label="Search catalogue">
-      <label class="lbl" for="browse-sort">Sort</label>
-      <select id="browse-sort" aria-label="Sort catalogue">
-        <option value="name">Name</option>
-        <option value="downloads">Most downloaded</option>
-        <option value="updated">Recently updated</option>
-      </select>
-      <span id="browse-summary" class="count"></span>
-      <span class="grow"></span>
-      <button id="btn-catalog-refresh" class="btn">Refresh catalogue</button>
-    </div>
-    <div class="toolbar sub">
-      <label for="gh-repo" class="lbl">Install from GitHub</label>
-      <input id="gh-repo" type="text" placeholder="owner/repo or a repository URL" spellcheck="false">
-      <button id="btn-gh-install" class="btn">Install</button>
-      <span class="hint">Any repo that publishes releases, listed here or not.</span>
-    </div>
-    <div class="thead cols-browse" aria-hidden="true">
-      <span>Addon</span><span>Category</span><span>Downloads</span><span>Source</span><span></span>
+      <input id="browse-filter" type="search" placeholder="Search the catalogue" aria-label="Search catalogue">
+      <div id="sort-chips" class="chip-row" role="radiogroup" aria-label="Sort">
+        <button class="fchip active" data-value="name" role="radio" aria-checked="true">A–Z<b></b></button>
+        <button class="fchip" data-value="downloads" role="radio" aria-checked="false">Popular<b></b></button>
+        <button class="fchip" data-value="updated" role="radio" aria-checked="false">Recent<b></b></button>
+      </div>
     </div>
     <div id="browse-list" class="list"></div>
     <p class="hint">The catalogue is a public list on GitHub. Add an addon with a pull request and it downloads straight from the author's own releases.</p>
   </section>
 
   <section id="tab-start" class="panel">
-    <details class="guide" id="guide">
-      <summary>New to addons? Start here</summary>
-      <div class="guide-body">
-        <p><b>What an addon is.</b> A small folder of text files (Lua and XML) that WoW loads when you log in. Addons can change how the interface looks and add helpers like boss timers or a better bag window. They cannot play the game for you, and on Forever a lot of combat information is deliberately hidden from them.</p>
-        <p><b>Where they live.</b> Inside your WoW folder, under <code>Interface\AddOns</code>. Each addon is one or more folders in there. That is the only place AddonForge writes to. Your settings for each addon are kept separately in the <code>WTF</code> folder, which AddonForge never touches, so removing or updating an addon does not lose its settings.</p>
-        <p><b>Turning them on.</b> Install from here, then start WoW. On the character-select screen there is an <b>AddOns</b> button in the corner: tick the ones you want and untick any you don't. Already in game? Type <code>/reload</code> in chat after installing to load them.</p>
-        <p><b>"Forever" builds.</b> Forever uses a newer interface than Classic Era, so addons need a version made for it. AddonForge tells you which ones have one. An addon marked "not for Forever" may still load but can error or show nothing.</p>
-        <p><b>Updates.</b> Open AddonForge now and then, or leave it to check when it starts. Authors publish a new version, you press Update, done. Pin an addon if you want to hold it at a version you like.</p>
-        <p><b>Beta note.</b> The Forever beta has a bug where addon settings sometimes don't load on the next login. That is the game, not the addon. Some people use an addon called SVShim as a workaround until Blizzard fixes it; it is linked from the catalogue, and AddonForge will tell you when it is time to remove it.</p>
-      </div>
-    </details>
-    <div class="section-title">Starter packs <span class="hint inline">Hand-picked sets. Install a whole pack, or click an addon to read about it.</span></div>
+    <div class="section-title">Starter packs <span class="hint inline">Hand-picked sets. Install a whole pack, or select an addon to read about it.</span></div>
     <div id="bundle-list" class="bundles"></div>
   </section>
 
@@ -107,8 +73,8 @@
       <div class="pref-label">WoW install</div>
       <div class="pref-body">
         <div class="row">
-          <input id="install-path" type="text" aria-label="WoW installation folder" placeholder="C:\Program Files (x86)\World of Warcraft\_classic_beta_">
-          <button id="btn-pick" class="btn">Browse…</button>
+          <input id="install-path" type="text" aria-label="WoW installation folder" placeholder="/storage/emulated/0/Download/World of Warcraft/_classic_beta_">
+          <button id="btn-pick" class="btn">Choose folder…</button>
           <button id="btn-detect" class="btn">Detect</button>
           <button id="btn-save-path" class="btn primary">Save</button>
         </div>
@@ -133,7 +99,7 @@
           <button id="btn-save-key" class="btn primary">Save</button>
           <button id="btn-clear-key" class="btn">Clear</button>
         </div>
-        <p class="hint">Some addons only publish on Wago. Their API needs a key, free from <a href="#" data-url="" id="wago-link">addons.wago.io</a>. Stored on this PC, only ever sent to addons.wago.io. <span id="wago-status"></span></p>
+        <p class="hint">Some addons only publish on Wago. Their API needs a key, free from <a href="#" data-url="" id="wago-link">addons.wago.io</a>. Stored on this device, only ever sent to addons.wago.io. <span id="wago-status"></span></p>
       </div>
     </div>
 
@@ -141,8 +107,8 @@
       <div class="pref-label">Addon list</div>
       <div class="pref-body">
         <div class="row">
-          <button id="btn-export" class="btn">Export…</button>
-          <button id="btn-import" class="btn">Import…</button>
+          <button id="btn-export" class="btn">Share my list…</button>
+          <button id="btn-import" class="btn">Import a list…</button>
         </div>
         <p class="hint">Names and sources only, no settings. Import one to install everything on it.</p>
         <div id="import-plan" class="hidden"></div>
@@ -156,6 +122,7 @@
           <button id="btn-report-gh" class="btn primary">Report on GitHub</button>
           <button id="btn-report-mail" class="btn">Email</button>
           <button id="btn-copy-diag" class="btn">Copy diagnostics</button>
+          <button id="btn-share-log" class="btn">Share the log</button>
         </div>
         <p class="hint">Builds a report with your version, install folder, addon list and the last few log lines. Nothing is sent until you press send, and you can read it first.</p>
         <pre id="diag" class="diag hidden"></pre>
@@ -186,46 +153,72 @@
   </section>
 </main>
 
-<footer class="statusbar"><span id="install-line">Looking for your installation…</span></footer>
 <div id="toast" class="toast" role="status" aria-live="polite"></div>
-<div id="detail" class="modal hidden" role="dialog" aria-modal="true" aria-labelledby="detail-name">
-  <div class="modal-card detail-card">
-    <button id="detail-close" class="link close" aria-label="Close">&times;</button>
-    <div class="detail-head">
-      <span id="detail-icon" class="ico big"></span>
-      <div class="nm-wrap">
-        <div id="detail-name" class="detail-name"></div>
-        <div id="detail-meta" class="muted"></div>
+<aside id="pane" class="pane android-only" aria-label="Details">
+  <div id="detail" class="modal hidden" role="region" aria-labelledby="detail-name">
+    <div class="modal-card detail-card">
+      <button id="detail-close" class="link close btn" aria-label="Back">← Back</button>
+      <div class="detail-head">
+        <span id="detail-icon" class="ico big"></span>
+        <div class="nm-wrap">
+          <div id="detail-name" class="detail-name"></div>
+          <div id="detail-meta" class="muted"></div>
+        </div>
+      </div>
+      <p id="detail-desc"></p>
+      <div id="detail-body" class="detail-body"></div>
+      <div id="detail-actions" class="detail-actions"></div>
+      <div class="row right">
+        <span id="detail-note" class="muted grow"></span>
+        <button id="detail-open" class="btn">Open its page</button>
+        <button id="detail-install" class="btn primary">Install</button>
       </div>
     </div>
-    <p id="detail-desc"></p>
-    <div id="detail-body" class="detail-body"></div>
-    <div id="detail-actions" class="detail-actions android-only"></div>
-    <div class="row right">
-      <span id="detail-note" class="muted grow"></span>
-      <button id="detail-open" class="btn">Open its page</button>
-      <button id="detail-install" class="btn primary">Install</button>
-    </div>
   </div>
-</div>
-<aside id="pane" class="pane android-only" aria-label="Details">
   <div id="pane-home" class="pane-home">
     <div class="pane-home-installed">
       <div class="pane-title">My addons</div>
-      <p class="pane-stats"><b id="pane-total">0</b> installed · <b id="pane-updates">0</b> to update · <b id="pane-attention">0</b> need attention</p>
+      <p class="pane-stats"><b id="stat-total">0</b> installed · <b id="stat-updates">0</b> to update · <b id="stat-attention">0</b> need attention</p>
       <p class="muted" id="pane-folder"></p>
-      <div class="pane-tools"></div>
+      <div class="pane-tools">
+        <button id="btn-check" class="btn">Check for updates</button>
+        <label class="chk"><input type="checkbox" id="show-ignored"> Show ignored</label>
+        <span id="last-checked">Not checked yet</span>
+      </div>
       <p class="hint">Select an addon to see its versions, notes and options.</p>
-      <div class="pane-actions"></div>
+      <div class="pane-actions">
+        <button id="btn-update-all" class="btn primary" disabled>Update all</button>
+      </div>
     </div>
     <div class="pane-home-browse">
       <div class="pane-title">Find addons</div>
       <p class="hint">Select an addon to read about it and install it. Featuring is free and always will be.</p>
-      <div class="pane-tools"></div>
+      <div class="pane-tools">
+        <div class="toolbar sub">
+          <label for="gh-repo" class="lbl">Install from GitHub</label>
+          <input id="gh-repo" type="text" placeholder="owner/repo or a repository URL" spellcheck="false">
+          <button id="btn-gh-install" class="btn">Install</button>
+          <span class="hint">Any repo that publishes releases, listed here or not.</span>
+        </div>
+        <button id="btn-catalog-refresh" class="btn">Refresh catalogue</button>
+      </div>
     </div>
-    <div class="pane-home-start"></div>
+    <div class="pane-home-start">
+      <details class="guide" id="guide" open>
+        <summary>New to addons? Start here</summary>
+        <div class="guide-body">
+          <p><b>What an addon is.</b> A small folder of text files (Lua and XML) that WoW loads when you log in. Addons can change how the interface looks and add helpers like boss timers or a better bag window. They cannot play the game for you, and on Forever a lot of combat information is deliberately hidden from them.</p>
+          <p><b>Where they live.</b> Inside your WoW folder, under <code>Interface/AddOns</code>. Each addon is one or more folders in there. That is the only place AddonForge writes to. Your settings for each addon are kept separately in the <code>WTF</code> folder, which AddonForge never touches, so removing or updating an addon does not lose its settings.</p>
+          <p><b>Turning them on.</b> Install from here, then start WoW from your launcher. On the character-select screen there is an <b>AddOns</b> button in the corner: tick the ones you want and untick any you don't. Already in game? Type <code>/reload</code> in chat (the launcher's keyboard has <code>/</code>) to load them.</p>
+          <p><b>"Forever" builds.</b> Forever uses a newer interface than Classic Era, so addons need a version made for it. AddonForge tells you which ones have one. An addon marked "not for Forever" may still load but can error or show nothing.</p>
+          <p><b>Updates.</b> Open AddonForge now and then, or leave it to check when it starts. Authors publish a new version, you press Update, done. Pin an addon if you want to hold it at a version you like.</p>
+          <p><b>Beta note.</b> The Forever beta has a bug where addon settings sometimes don't load on the next login. That is the game, not the addon. Some people use an addon called SVShim as a workaround until Blizzard fixes it; it is linked from the catalogue, and AddonForge will tell you when it is time to remove it.</p>
+        </div>
+      </details>
+    </div>
   </div>
 </aside>
+<div id="snackbar" class="snackbar hidden" role="status"><span id="snackbar-text"></span><button id="snackbar-undo" class="btn small">Undo</button></div>
 <div id="onboard" class="onboard hidden" role="dialog" aria-modal="true" aria-labelledby="onboard-title">
   <div class="onboard-card">
     <img src="icon.svg" alt="" class="onboard-mark">
@@ -257,6 +250,6 @@
   </div>
 </div>
 <script src="app.js"></script>
-<script src="touch.js"></script>
+<script src="pad.js"></script>
 </body>
 </html>

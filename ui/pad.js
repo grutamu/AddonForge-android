@@ -1,96 +1,21 @@
-// AddonForge on the AYN Thor (landscape): the touch layout and gamepad
-// navigation. Loaded after app.js and uses its globals. MainActivity forwards
-// every pad button and Back as afPad("NAME"); without it (the Mac preview) the
-// keyboard arrows move the focus.
+// AddonForge on the AYN Thor: gamepad navigation, focus, Back, first run and
+// coming back from the launcher. Loaded after app.js and uses its globals.
+// MainActivity forwards every pad button and Back as afPad("NAME"); without
+// it (the Mac preview) the keyboard arrows move the focus.
 (() => {
   const A = window.AddonForgeAndroid;
   const body = document.body;
-  body.classList.add("android");
-  body.dataset.tab = "installed";
-
-  // ------------------------------------------------------------ layout
-  const pane = $("pane");
-  pane.insertBefore($("detail"), $("pane-home"));
-  const home = (tab) => pane.querySelector(`.pane-home-${tab}`);
-  home("installed").querySelector(".pane-tools").append($("btn-check"), $("show-ignored").closest("label"), $("last-checked"));
-  home("installed").querySelector(".pane-actions").append($("btn-update-all"));
-  home("browse").querySelector(".pane-tools").append(document.querySelector("#tab-browse .toolbar.sub"), $("btn-catalog-refresh"));
-  home("start").append($("guide"));
-  $("guide").open = true;
-  // Android wording: forward slashes, the launcher, no "click".
-  const guide = $("guide").querySelectorAll(".guide-body p");
-  guide[1].querySelector("code").textContent = "Interface/AddOns";
-  guide[2].innerHTML = `<b>Turning them on.</b> Install from here, then start WoW from your launcher. On the character-select screen there is an <b>AddOns</b> button in the corner: tick the ones you want and untick any you don't. Already in game? Type <code>/reload</code> in chat (the launcher's keyboard has <code>/</code>) to load them.`;
-  document.querySelector("#tab-start .section-title .hint").textContent = "Hand-picked sets. Install a whole pack, or select an addon to read about it.";
-  $("btn-check").textContent = "Check for updates";
-  // "Check" re-reads the AddOns folder first, so Rescan isn't needed.
-  $("btn-check").onclick = async () => { await rescan(true); await checkUpdates(); };
-  $("detail-close").textContent = "\u2190 Back";
-  $("detail-close").classList.add("btn");
-
-  // Dropdowns become chips: a pad can't open a <select>'s picker.
-  function chips(select, label) {
-    const box = document.createElement("div");
-    box.className = "chip-row";
-    box.setAttribute("role", "radiogroup");
-    box.setAttribute("aria-label", label);
-    box.innerHTML = [...select.options].map((o) => `<button class="fchip" data-value="${esc(o.value)}" role="radio">${esc(o.textContent)}<b></b></button>`).join("");
-    box.addEventListener("click", (e) => {
-      const b = e.target.closest(".fchip");
-      if (!b) return;
-      select.value = b.dataset.value;
-      select.dispatchEvent(new Event("change"));
-      sync();
-    });
-    const sync = () => box.querySelectorAll(".fchip").forEach((b) => {
-      b.classList.toggle("active", b.dataset.value === select.value);
-      b.setAttribute("aria-checked", b.dataset.value === select.value);
-    });
-    select.classList.add("hidden");
-    select.after(box);
-    sync();
-    return box;
-  }
-  const viewChips = chips($("installed-view"), "Show");
-  const sortChips = chips($("browse-sort"), "Sort");
-  const relabel = (box, names) => box.querySelectorAll(".fchip").forEach((b) => { if (names[b.dataset.value]) b.firstChild.textContent = names[b.dataset.value]; });
-  relabel(viewChips, { all: "All", updates: "Updates", attention: "Needs attention" });
-  relabel(sortChips, { name: "A–Z", downloads: "Popular", updated: "Recent" });
-  $("installed-filter").placeholder = "Search";
-  $("browse-filter").placeholder = "Search the catalogue";
-
-  // Rail: count of updates on My addons.
-  const railBadge = document.createElement("span");
-  railBadge.className = "rail-badge hidden";
-  document.querySelector('.tab[data-tab="installed"]').append(railBadge);
-
-  function paneStats() {
-    const live = packages.filter((p) => !p.ignored);
-    const updates = live.filter((p) => p.status === "update").length;
-    const attention = live.filter(needsAttention).length;
-    $("pane-total").textContent = packages.length;
-    $("pane-updates").textContent = updates;
-    $("pane-attention").textContent = attention;
-    railBadge.textContent = updates;
-    railBadge.classList.toggle("hidden", !updates);
-    const counts = { all: packages.filter((p) => $("show-ignored").checked || !p.ignored).length, updates, attention };
-    viewChips.querySelectorAll(".fchip").forEach((b) => { b.querySelector("b").textContent = counts[b.dataset.value] ?? ""; });
-    $("pane-folder").textContent = settings?.install_path ? `Game folder: ${settings.install_path.replace(/^\/storage\/emulated\/0\//, "")}` : "No game folder yet";
-  }
 
   // Lists are rebuilt with innerHTML: make rows focusable, keep the focus.
   function prepare(root) {
     root.querySelectorAll(".item, .feat").forEach((el) => { el.tabIndex = 0; el.setAttribute("role", "button"); });
-    root.querySelectorAll(".addon-detail, .c-src a, .feat-name, .more-actions summary").forEach((el) => { el.tabIndex = -1; });
+    root.querySelectorAll(".addon-detail, .c-src a, .feat-name").forEach((el) => { el.tabIndex = -1; });
   }
   for (const id of ["installed-list", "browse-list", "featured-list", "bundle-list"]) {
     const list = $(id);
     new MutationObserver(() => {
       prepare(list);
-      if (id === "installed-list") {
-        paneStats();
-        highlightOnLaunch();
-      }
+      if (id === "installed-list") highlightOnLaunch();
       restoreFocus();
     }).observe(list, { childList: true });
     prepare(list);
@@ -105,24 +30,6 @@
     padStarted = true;
     focusFirst();
   }
-
-  // Rows open in the pane (catalogue names already do via data-detail).
-  $("featured-list").addEventListener("click", (e) => {
-    const card = e.target.closest(".feat");
-    if (card && !e.target.closest("button")) openDetail(card.dataset.id);
-  });
-  $("browse-list").addEventListener("click", (e) => {
-    const row = e.target.closest(".item[data-id]");
-    if (row && !e.target.closest("button, a, [data-detail]")) openDetail(row.dataset.id);
-  });
-
-  // Which pane shows depends on the tab; leaving a tab closes its details.
-  document.addEventListener("click", (e) => {
-    const tab = e.target.closest(".tab");
-    if (!tab) return;
-    if (detailId) closeDetail();
-    body.dataset.tab = tab.dataset.tab;
-  }, true);
 
   // ------------------------------------------------------------ gamepad
   const LAYOUT_KEY = "af-pad-layout";
@@ -362,18 +269,6 @@
     }
     setTimeout(focusFirst, 0);
   }
-  // A picked folder may be the game folder or the _classic_beta_ inside it.
-  async function setGameFolder(path) {
-    try {
-      return await invoke("set_install_path", { path });
-    } catch (err) {
-      try {
-        return await invoke("set_install_path", { path: `${path.replace(/\/$/, "")}/_classic_beta_` });
-      } catch (_) {
-        throw err;
-      }
-    }
-  }
   async function usePath(path) {
     if (!path) return toast("Enter a folder first", true);
     try {
@@ -414,119 +309,6 @@
       checkUpdates(true);
     }
   });
-
-  // ------------------------------------------------------------ Android pickers, sharing, feedback
-  // MainActivity answers pickers later with afResult(id, value); value is null when cancelled.
-  const replies = new Map();
-  let replySeq = 0;
-  window.afResult = (id, value) => {
-    if (id === "share-error") return toast(value, true);
-    replies.get(id)?.(value);
-    replies.delete(id);
-  };
-  function ask(method) {
-    if (!A) return Promise.resolve(null);
-    return new Promise((resolve) => {
-      const id = `r${++replySeq}`;
-      replies.set(id, resolve);
-      A[method](id);
-    });
-  }
-
-  $("btn-pick").onclick = async () => {
-    const path = await ask("pickFolder");
-    if (!path) return;
-    try {
-      const info = await setGameFolder(path);
-      toast(`Managing ${info.label}`);
-      await loadSettings();
-      await rescan();
-      checkUpdates(true);
-    } catch (err) {
-      toast(String(err), true);
-    }
-  };
-  $("btn-export").onclick = async () => {
-    if (!A) return;
-    try {
-      const path = `${A.cacheDir()}/addonforge-list.json`;
-      const n = await invoke("export_list", { path });
-      A.share(path, "application/json", "My AddonForge addon list");
-      toast(`${n} addon${n === 1 ? "" : "s"} in the list`);
-    } catch (err) {
-      toast(String(err), true);
-    }
-  };
-  $("btn-import").onclick = async () => {
-    const path = await ask("pickFile");
-    if (!path) return;
-    try {
-      renderImportPlan(await invoke("import_list", { path }));
-    } catch (err) {
-      toast(String(err), true);
-    }
-  };
-  const shareLog = document.createElement("button");
-  shareLog.className = "btn";
-  shareLog.textContent = "Share the log";
-  shareLog.onclick = () => settings?.state_file && A?.share(settings.state_file.replace(/[^/]+$/, "addonforge.log"), "text/plain", "AddonForge log");
-  $("btn-copy-diag").after(shareLog);
-  // Desktop wording in the Wago hint.
-  for (const node of $("wago-link").parentNode.childNodes) {
-    if (node.nodeType === Node.TEXT_NODE) node.textContent = node.textContent.replace("on this PC", "on this device");
-  }
-
-  // Installs keep the screen on (a long Update all isn't cut off by sleep);
-  // a finished install gives a small haptic tick.
-  const setBusyBase = setBusy;
-  setBusy = (b) => {
-    if (b !== busy) A?.keepAwake(b);
-    setBusyBase(b);
-  };
-  const toastBase = toast;
-  toast = (msg, bad = false) => {
-    if (!bad && /^(Installed|Imported|Updated|Removed)|is now /.test(msg)) A?.haptic();
-    toastBase(msg, bad);
-  };
-
-  // Pin and Ignore are one press to undo.
-  const snack = document.createElement("div");
-  snack.className = "snackbar hidden";
-  snack.setAttribute("role", "status");
-  snack.innerHTML = `<span></span><button class="btn small">Undo</button>`;
-  body.append(snack);
-  let snackTimer;
-  const hideSnack = () => snack.classList.add("hidden");
-  function snackbar(text, undo) {
-    snack.querySelector("span").textContent = text;
-    snack.querySelector("button").onclick = async () => { hideSnack(); await undo(); };
-    snack.classList.remove("hidden");
-    clearTimeout(snackTimer);
-    snackTimer = setTimeout(hideSnack, 6000);
-  }
-  const packageActionBase = packageAction;
-  packageAction = async (act, p, btn) => {
-    await packageActionBase(act, p, btn);
-    const now = packages.find((x) => x.key === p.key);
-    if (!now || (act !== "pin" && act !== "ignore") || now.pinned === p.pinned && now.ignored === p.ignored) return;
-    const done = act === "pin" ? (now.pinned ? "pinned" : "can update again") : now.ignored ? "ignored" : "shown again";
-    snackbar(`${now.name} ${done}`, () => packageActionBase(act, now, btn));
-  };
-
-  // Offline: one clear line instead of a red error on every addon.
-  const offline = document.createElement("div");
-  offline.className = "banner offline hidden";
-  offline.textContent = "No internet connection. Checking and installing addons need Wi-Fi.";
-  $("selfupdate").after(offline);
-  const showNet = () => offline.classList.toggle("hidden", navigator.onLine);
-  addEventListener("online", showNet);
-  addEventListener("offline", showNet);
-  showNet();
-  const checkUpdatesBase = checkUpdates;
-  checkUpdates = async (quiet = false) => {
-    if (navigator.onLine) return checkUpdatesBase(quiet);
-    if (!quiet) toast("You're offline. Connect to Wi-Fi to check for updates.", true);
-  };
 
   // Launcher shortcut (long-press the icon → "Update all"): check, then update.
   async function launchAction() {
