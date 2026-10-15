@@ -1029,16 +1029,6 @@ $("btn-report-gh").onclick = async () => {
     toast(String(err), true);
   }
 };
-$("btn-report-mail").onclick = async () => {
-  try {
-    const d = await diag();
-    await copyText(d);
-    const body = "What happened?\n\n(describe it here)\n\nDiagnostics (also copied to your clipboard, paste if missing):\n\n" + d.slice(0, 1500);
-    openUrl(`mailto:${settings.support_email}?subject=${encodeURIComponent("AddonForge problem")}&body=${encodeURIComponent(body)}`);
-  } catch (err) {
-    toast(String(err), true);
-  }
-};
 
 // ---------------------------------------------------------------- self-update
 async function checkSelf(manual = false) {
