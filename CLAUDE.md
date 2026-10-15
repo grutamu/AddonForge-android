@@ -117,7 +117,7 @@ node scripts/security-check.mjs
 
 ## Android details
 - Target: the Thor's top screen, ~833×469 CSS px, Android 13. No portrait.
-  UX plan and history: `docs/android-ux-plan.md`.
+  The original UX plan is kept outside the repo, in the owner's notes.
 - Gamepad: MainActivity consumes every pad button, D-pad / hat / left stick
   and system Back, and calls `afPad("A"|"B"|"X"|"Y"|"L1"|"R1"|"START"|"UP"…|"BACK")`.
   Consuming them stops Android's fallbacks (BUTTON_B → Back). Default layout

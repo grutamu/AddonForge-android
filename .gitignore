@@ -8,5 +8,6 @@ dist/
 Thumbs.db
 private/
 
-# Local planning notes from the cleanup agent; not published.
+# Local planning notes; not published.
 docs/windows-cleanup-plan.md
+docs/android-ux-plan.md
