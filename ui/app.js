@@ -768,14 +768,27 @@ async function loadSettings() {
   $("install-line").classList.toggle("connected", !!settings.install);
   $("svfix-note").classList.toggle("hidden", !settings.svfix);
   $("footer-open-folder").disabled = !settings.install;
+  if (isAndroid()) {
+    // No folder picker, file explorer or exe self-update on Android.
+    document.body.classList.add("android");
+    for (const id of ["btn-pick", "btn-open-folder", "footer-open-folder", "btn-open-log", "btn-selfcheck"]) $(id).classList.add("hidden");
+    $("install-path").placeholder = "/storage/emulated/0/Download/WoW Forever/_classic_beta_";
+    $("btn-export").textContent = "Export to Download";
+    $("btn-import").textContent = "Import from Download";
+  }
 }
+
+const isAndroid = () => settings?.platform === "android";
+// Android's file dialogs hand back content:// URIs the backend can't open, so
+// export and import use one fixed file in the shared Download folder.
+const ANDROID_LIST = "/storage/emulated/0/Download/addonforge-list.json";
 
 async function detect() {
   $("detected").innerHTML = `<span class="muted"><span class="spinner"></span> Scanning drives…</span>`;
   try {
     const found = await invoke("find_installs");
     if (!found.length) {
-      $("detected").innerHTML = `<span class="muted">Nothing found in the usual places. Use Browse… to pick the <code>_classic_beta_</code> folder yourself.</span>`;
+      $("detected").innerHTML = `<span class="muted">Nothing found in the usual places. ${isAndroid() ? "Type the full path to" : "Use Browse… to pick"} the <code>_classic_beta_</code> folder yourself.</span>`;
       return;
     }
     $("detected").innerHTML = found
@@ -852,10 +865,12 @@ $("pref-prerelease").addEventListener("change", async (e) => {
 // ---------------------------------------------------------------- export / import
 $("btn-export").onclick = async () => {
   try {
-    const path = await T.dialog.save({ title: "Export addon list", defaultPath: "addonforge-list.json", filters: [{ name: "AddonForge list", extensions: ["json"] }] });
+    const path = isAndroid()
+      ? ANDROID_LIST
+      : await T.dialog.save({ title: "Export addon list", defaultPath: "addonforge-list.json", filters: [{ name: "AddonForge list", extensions: ["json"] }] });
     if (!path) return;
     const n = await invoke("export_list", { path });
-    toast(`Exported ${n} addon${n === 1 ? "" : "s"}`);
+    toast(`Exported ${n} addon${n === 1 ? "" : "s"}${isAndroid() ? " to Download/addonforge-list.json" : ""}`);
   } catch (err) {
     toast(String(err), true);
   }
@@ -863,7 +878,9 @@ $("btn-export").onclick = async () => {
 
 $("btn-import").onclick = async () => {
   try {
-    const path = await T.dialog.open({ title: "Import addon list", multiple: false, filters: [{ name: "AddonForge list", extensions: ["json"] }] });
+    const path = isAndroid()
+      ? ANDROID_LIST
+      : await T.dialog.open({ title: "Import addon list", multiple: false, filters: [{ name: "AddonForge list", extensions: ["json"] }] });
     if (!path) return;
     const plan = await invoke("import_list", { path });
     renderImportPlan(plan);
@@ -1011,3 +1028,12 @@ $("selfupdate-go").onclick = async () => {
     })
     .catch(() => {});
 })();
+
+// Android: the first launch opens the "All files access" screen over the app.
+// Coming back with no game folder yet, look again now that storage is readable.
+document.addEventListener("visibilitychange", async () => {
+  if (document.visibilityState !== "visible" || !isAndroid() || settings?.install_path) return;
+  await detect();
+  await loadSettings();
+  if (settings?.install_path) { await rescan(); checkUpdates(); }
+});

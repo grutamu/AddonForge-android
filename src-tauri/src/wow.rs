@@ -88,6 +88,7 @@ pub fn describe_install(product_dir: &Path) -> Option<WowInstall> {
     })
 }
 
+#[cfg(not(target_os = "android"))]
 const ROOT_PATTERNS: &[&str] = &[
     "Program Files (x86)\\World of Warcraft",
     "Program Files\\World of Warcraft",
@@ -97,7 +98,22 @@ const ROOT_PATTERNS: &[&str] = &[
     "Battle.net\\World of Warcraft",
 ];
 
+/// Push every `_*_` product folder directly under `root`.
+fn scan_root(root: &Path, found: &mut Vec<WowInstall>) {
+    let Ok(rd) = fs::read_dir(root) else { return };
+    for entry in rd.flatten() {
+        let p = entry.path();
+        let name = entry.file_name().to_string_lossy().to_string();
+        if p.is_dir() && name.starts_with('_') && name.ends_with('_') {
+            if let Some(i) = describe_install(&p) {
+                found.push(i);
+            }
+        }
+    }
+}
+
 /// Scan the usual places for `World of Warcraft\_*_` product folders.
+#[cfg(not(target_os = "android"))]
 pub fn find_installs() -> Vec<WowInstall> {
     let mut found = Vec::new();
     for letter in b'C'..=b'Z' {
@@ -106,19 +122,43 @@ pub fn find_installs() -> Vec<WowInstall> {
             continue;
         }
         for pat in ROOT_PATTERNS {
-            let root = PathBuf::from(&drive).join(pat);
-            let Ok(rd) = fs::read_dir(&root) else { continue };
-            for entry in rd.flatten() {
-                let p = entry.path();
-                let name = entry.file_name().to_string_lossy().to_string();
-                if p.is_dir() && name.starts_with('_') && name.ends_with('_') {
-                    if let Some(i) = describe_install(&p) {
-                        found.push(i);
-                    }
+            scan_root(&PathBuf::from(&drive).join(pat), &mut found);
+        }
+    }
+    sort_installs(found)
+}
+
+/// Android (the wow-forever-android launcher): the game root is any folder
+/// holding `.build.info`, default `/storage/emulated/0/WoW Forever`, often
+/// moved to Download/ or an SD card. Look one level deep in each storage
+/// volume and in its Download folder.
+#[cfg(target_os = "android")]
+pub fn find_installs() -> Vec<WowInstall> {
+    let mut volumes = vec![PathBuf::from("/storage/emulated/0")];
+    if let Ok(rd) = fs::read_dir("/storage") {
+        for e in rd.flatten() {
+            let name = e.file_name().to_string_lossy().to_string();
+            if name != "emulated" && name != "self" {
+                volumes.push(e.path());
+            }
+        }
+    }
+    let mut found = Vec::new();
+    for vol in volumes {
+        for base in [vol.clone(), vol.join("Download"), vol.join("Downloads"), vol.join("Games")] {
+            let Ok(rd) = fs::read_dir(&base) else { continue };
+            for e in rd.flatten() {
+                let root = e.path();
+                if root.join(".build.info").is_file() || root.join("_classic_beta_").is_dir() {
+                    scan_root(&root, &mut found);
                 }
             }
         }
     }
+    sort_installs(found)
+}
+
+fn sort_installs(mut found: Vec<WowInstall>) -> Vec<WowInstall> {
     // Forever first, then the rest, stable by path.
     found.sort_by(|a, b| {
         (a.flavor != "forever")
