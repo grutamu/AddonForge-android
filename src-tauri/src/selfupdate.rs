@@ -139,9 +139,9 @@ async fn android_latest(client: &reqwest::Client) -> anyhow::Result<Option<(Late
     Ok(Some((l, newer)))
 }
 
-/// `v0.4.0-b17` → ("0.4.0", 17); `v0.4.0` → ("0.4.0", 0).
+/// `android-v0.4.0-b17` / `v0.4.0-b17` → ("0.4.0", 17); `v0.4.0` → ("0.4.0", 0).
 pub fn parse_tag(tag: &str) -> (String, u32) {
-    let t = tag.trim().trim_start_matches(['v', 'V']);
+    let t = tag.trim().trim_start_matches("android-").trim_start_matches(['v', 'V']);
     match t.split_once("-b") {
         Some((v, b)) => (v.to_string(), b.parse().unwrap_or(0)),
         None => (t.to_string(), 0),
@@ -250,6 +250,7 @@ mod tests {
     fn android_tags_and_dev_builds() {
         assert_eq!(parse_tag("v0.4.0-b17"), ("0.4.0".into(), 17));
         assert_eq!(parse_tag("v0.4.0"), ("0.4.0".into(), 0));
+        assert_eq!(parse_tag("android-v0.3.0-b2"), ("0.3.0".into(), 2));
         let l = |v: &str, b| Latest { version: v.into(), build: b, ..Default::default() };
         assert!(android_is_newer(&l("0.4.0", 0), "0.3.0", 0));
         assert!(!android_is_newer(&l("0.3.0", 17), "0.3.0", 0), "dev builds only compare versions");

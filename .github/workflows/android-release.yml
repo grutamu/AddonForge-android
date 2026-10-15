@@ -1,0 +1,104 @@
+name: Android release
+
+# Builds the signed APK for the AYN Thor and publishes it as a GitHub release.
+# Start one with scripts/release-android.sh, which pushes a tag like
+# android-v0.3.0-b1. The app's update banner and Obtainium both read these
+# releases (tag android-v<version>-b<build>, one .apk asset).
+on:
+  push:
+    tags: ["android-v*"]
+  workflow_dispatch:
+    inputs:
+      tag:
+        description: "Existing tag to build again, e.g. android-v0.3.0-b1"
+        required: true
+
+permissions:
+  contents: write
+
+jobs:
+  apk:
+    runs-on: ubuntu-latest
+    env:
+      TAG: ${{ github.event.inputs.tag || github.ref_name }}
+    steps:
+      - uses: actions/checkout@v4
+        with:
+          ref: ${{ env.TAG }}
+
+      - name: Version and build number from the tag
+        id: v
+        run: |
+          [[ "$TAG" =~ ^android-v([0-9]+)\.([0-9]+)\.([0-9]+)-b([0-9]+)$ ]] || { echo "::error::Tag must look like android-v0.3.0-b1, got $TAG"; exit 1; }
+          ver="${BASH_REMATCH[1]}.${BASH_REMATCH[2]}.${BASH_REMATCH[3]}"
+          conf=$(node -p "require('./src-tauri/tauri.conf.json').version")
+          [ "$ver" = "$conf" ] || { echo "::error::Tag says $ver but tauri.conf.json says $conf"; exit 1; }
+          # Always increasing across releases: 0.3.0 build 1 -> 300001.
+          code=$(( BASH_REMATCH[1] * 10000000 + BASH_REMATCH[2] * 100000 + BASH_REMATCH[4] ))
+          echo "version=$ver" >> "$GITHUB_OUTPUT"
+          echo "build=${BASH_REMATCH[4]}" >> "$GITHUB_OUTPUT"
+          echo "code=$code" >> "$GITHUB_OUTPUT"
+          echo "apk=AddonForge-android-v$ver-b${BASH_REMATCH[4]}.apk" >> "$GITHUB_OUTPUT"
+
+      - uses: actions/setup-java@v4
+        with:
+          distribution: temurin
+          java-version: 17
+      - uses: actions/setup-node@v4
+        with:
+          node-version: 20
+      - uses: dtolnay/rust-toolchain@stable
+        with:
+          targets: aarch64-linux-android
+      - uses: Swatinem/rust-cache@v2
+        with:
+          workspaces: src-tauri
+
+      - run: npm ci
+      - name: UI checks and security gate
+        run: node scripts/test-ui.js && node scripts/security-check.mjs
+
+      - name: Signing key
+        env:
+          KEYSTORE: ${{ secrets.ANDROID_KEYSTORE_BASE64 }}
+          STORE_PASSWORD: ${{ secrets.ANDROID_KEYSTORE_PASSWORD }}
+          KEY_ALIAS: ${{ secrets.ANDROID_KEY_ALIAS }}
+          KEY_PASSWORD: ${{ secrets.ANDROID_KEY_PASSWORD }}
+        run: |
+          [ -n "$KEYSTORE" ] || { echo "::error::ANDROID_KEYSTORE_BASE64 secret is missing"; exit 1; }
+          echo "$KEYSTORE" | base64 -d > "$RUNNER_TEMP/release.jks"
+          {
+            echo "storeFile=$RUNNER_TEMP/release.jks"
+            echo "storePassword=$STORE_PASSWORD"
+            echo "keyAlias=$KEY_ALIAS"
+            echo "keyPassword=$KEY_PASSWORD"
+          } > src-tauri/gen/android/keystore.properties
+
+      - name: Build APK
+        env:
+          ADDONFORGE_BUILD: ${{ steps.v.outputs.build }}
+        run: |
+          export NDK_HOME="$ANDROID_NDK_LATEST_HOME"
+          npx tauri android build --apk --target aarch64 \
+            --config '{"bundle":{"android":{"versionCode":${{ steps.v.outputs.code }}}}}'
+          cp src-tauri/gen/android/app/build/outputs/apk/universal/release/app-universal-release.apk "${{ steps.v.outputs.apk }}"
+
+      - name: Check the signature
+        run: |
+          apksigner=$(ls -d "$ANDROID_HOME"/build-tools/* | sort -V | tail -1)/apksigner
+          "$apksigner" verify --print-certs "${{ steps.v.outputs.apk }}" | grep -m1 "certificate SHA-256"
+
+      - name: Publish
+        env:
+          GH_TOKEN: ${{ github.token }}
+        run: |
+          title="AddonForge for Android v${{ steps.v.outputs.version }} build ${{ steps.v.outputs.build }}"
+          if gh release view "$TAG" >/dev/null 2>&1; then
+            gh release upload "$TAG" "${{ steps.v.outputs.apk }}" --clobber
+          else
+            gh release create "$TAG" "${{ steps.v.outputs.apk }}" --title "$title" --notes-from-tag
+          fi
+
+      - name: Remove the signing key
+        if: always()
+        run: rm -f "$RUNNER_TEMP/release.jks" src-tauri/gen/android/keystore.properties

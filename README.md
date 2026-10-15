@@ -87,6 +87,10 @@ npx tauri android build --apk --target aarch64
 adb install -r src-tauri/gen/android/app/build/outputs/apk/universal/release/app-universal-release.apk
 ```
 
+Releases are built and signed by GitHub Actions: `scripts/release-android.sh "what changed"`
+tags the next `android-v<version>-b<build>` and the workflow publishes the APK. The
+releases work with [Obtainium](https://github.com/ImranR98/Obtainium) for automatic updates.
+
 ## Contributing
 
 Want an addon listed? See [CONTRIBUTING.md](CONTRIBUTING.md): one JSON entry and a pull request, validated automatically. Or open an "Add an addon" issue and we'll do it.
