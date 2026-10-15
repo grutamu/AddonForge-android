@@ -3,11 +3,6 @@
 
 fn main() {
     let args: Vec<String> = std::env::args().skip(1).collect();
-    if args.first().map(|a| a == "--cli").unwrap_or(false) {
-        // Headless mode for scripts and for testing without the window:
-        //   addonforge --cli installs | scan | check | update <key> | install <catalog-id> | ...
-        std::process::exit(addonforge_lib::cli(&args[1..]));
-    }
     // Launched by a self-update: tidy up the old exe in the background.
     if args.first().map(|a| a == "--replaced").unwrap_or(false) {
         // Tell the app it was just updated, so the "what changed" note shows once.
