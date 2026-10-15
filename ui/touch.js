@@ -81,7 +81,7 @@
 
   // Lists are rebuilt with innerHTML: make rows focusable, keep the focus.
   function prepare(root) {
-    root.querySelectorAll(".item, .feat").forEach((el) => { el.tabIndex = 0; });
+    root.querySelectorAll(".item, .feat").forEach((el) => { el.tabIndex = 0; el.setAttribute("role", "button"); });
     root.querySelectorAll(".addon-detail, .c-src a, .feat-name, .more-actions summary").forEach((el) => { el.tabIndex = -1; });
   }
   for (const id of ["installed-list", "browse-list", "featured-list", "bundle-list"]) {
@@ -363,10 +363,22 @@
     }
     setTimeout(focusFirst, 0);
   }
+  // A picked folder may be the game folder or the _classic_beta_ inside it.
+  async function setGameFolder(path) {
+    try {
+      return await invoke("set_install_path", { path });
+    } catch (err) {
+      try {
+        return await invoke("set_install_path", { path: `${path.replace(/\/$/, "")}/_classic_beta_` });
+      } catch (_) {
+        throw err;
+      }
+    }
+  }
   async function usePath(path) {
     if (!path) return toast("Enter a folder first", true);
     try {
-      const info = await invoke("set_install_path", { path });
+      const info = await setGameFolder(path);
       toast(`Managing ${info.label}`);
       ob.hide();
       await loadSettings();
@@ -383,15 +395,17 @@
     if (b) return usePath(b.dataset.path);
     if (e.target.closest("[data-other]")) {
       $("onboard-manual").classList.remove("hidden");
-      focus($("onboard-path"));
+      focus($("onboard-pick"));
     }
   });
   $("onboard-use").onclick = () => usePath($("onboard-path").value.trim());
+  $("onboard-pick").onclick = async () => { const path = await ask("pickFolder"); if (path) usePath(path); };
   $("onboard-retry").onclick = onboard;
   // Coming back from the launcher: check again if the last check is stale.
   const RECHECK_MS = 10 * 60 * 1000;
   let lastCheck = Date.now();
-  new MutationObserver(() => { lastCheck = Date.now(); }).observe($("last-checked"), { childList: true });
+  let checkedOnce = false;
+  new MutationObserver(() => { lastCheck = Date.now(); checkedOnce = true; }).observe($("last-checked"), { childList: true });
   document.addEventListener("visibilitychange", async () => {
     if (document.visibilityState !== "visible") return;
     onboard();
@@ -401,5 +415,135 @@
       checkUpdates(true);
     }
   });
+
+  // ------------------------------------------------------------ Android pickers, sharing, feedback
+  // MainActivity answers pickers later with afResult(id, value); value is null when cancelled.
+  const replies = new Map();
+  let replySeq = 0;
+  window.afResult = (id, value) => {
+    if (id === "share-error") return toast(value, true);
+    replies.get(id)?.(value);
+    replies.delete(id);
+  };
+  function ask(method) {
+    if (!A) return Promise.resolve(null);
+    return new Promise((resolve) => {
+      const id = `r${++replySeq}`;
+      replies.set(id, resolve);
+      A[method](id);
+    });
+  }
+
+  $("btn-pick").onclick = async () => {
+    const path = await ask("pickFolder");
+    if (!path) return;
+    try {
+      const info = await setGameFolder(path);
+      toast(`Managing ${info.label}`);
+      await loadSettings();
+      await rescan();
+      checkUpdates(true);
+    } catch (err) {
+      toast(String(err), true);
+    }
+  };
+  $("btn-export").onclick = async () => {
+    if (!A) return;
+    try {
+      const path = `${A.cacheDir()}/addonforge-list.json`;
+      const n = await invoke("export_list", { path });
+      A.share(path, "application/json", "My AddonForge addon list");
+      toast(`${n} addon${n === 1 ? "" : "s"} in the list`);
+    } catch (err) {
+      toast(String(err), true);
+    }
+  };
+  $("btn-import").onclick = async () => {
+    const path = await ask("pickFile");
+    if (!path) return;
+    try {
+      renderImportPlan(await invoke("import_list", { path }));
+    } catch (err) {
+      toast(String(err), true);
+    }
+  };
+  const shareLog = document.createElement("button");
+  shareLog.className = "btn";
+  shareLog.textContent = "Share the log";
+  shareLog.onclick = () => settings?.state_file && A?.share(settings.state_file.replace(/[^/]+$/, "addonforge.log"), "text/plain", "AddonForge log");
+  $("btn-copy-diag").after(shareLog);
+  // Desktop wording in the Wago hint.
+  for (const node of $("wago-link").parentNode.childNodes) {
+    if (node.nodeType === Node.TEXT_NODE) node.textContent = node.textContent.replace("on this PC", "on this device");
+  }
+
+  // Installs keep the screen on (a long Update all isn't cut off by sleep);
+  // a finished install gives a small haptic tick.
+  const setBusyBase = setBusy;
+  setBusy = (b) => {
+    if (b !== busy) A?.keepAwake(b);
+    setBusyBase(b);
+  };
+  const toastBase = toast;
+  toast = (msg, bad = false) => {
+    if (!bad && /^(Installed|Imported|Updated|Removed)|is now /.test(msg)) A?.haptic();
+    toastBase(msg, bad);
+  };
+
+  // Pin and Ignore are one press to undo.
+  const snack = document.createElement("div");
+  snack.className = "snackbar hidden";
+  snack.setAttribute("role", "status");
+  snack.innerHTML = `<span></span><button class="btn small">Undo</button>`;
+  body.append(snack);
+  let snackTimer;
+  const hideSnack = () => snack.classList.add("hidden");
+  function snackbar(text, undo) {
+    snack.querySelector("span").textContent = text;
+    snack.querySelector("button").onclick = async () => { hideSnack(); await undo(); };
+    snack.classList.remove("hidden");
+    clearTimeout(snackTimer);
+    snackTimer = setTimeout(hideSnack, 6000);
+  }
+  const packageActionBase = packageAction;
+  packageAction = async (act, p, btn) => {
+    await packageActionBase(act, p, btn);
+    const now = packages.find((x) => x.key === p.key);
+    if (!now || (act !== "pin" && act !== "ignore") || now.pinned === p.pinned && now.ignored === p.ignored) return;
+    const done = act === "pin" ? (now.pinned ? "pinned" : "can update again") : now.ignored ? "ignored" : "shown again";
+    snackbar(`${now.name} ${done}`, () => packageActionBase(act, now, btn));
+  };
+
+  // Offline: one clear line instead of a red error on every addon.
+  const offline = document.createElement("div");
+  offline.className = "banner offline hidden";
+  offline.textContent = "No internet connection. Checking and installing addons need Wi-Fi.";
+  $("selfupdate").after(offline);
+  const showNet = () => offline.classList.toggle("hidden", navigator.onLine);
+  addEventListener("online", showNet);
+  addEventListener("offline", showNet);
+  showNet();
+  const checkUpdatesBase = checkUpdates;
+  checkUpdates = async (quiet = false) => {
+    if (navigator.onLine) return checkUpdatesBase(quiet);
+    if (!quiet) toast("You're offline. Connect to Wi-Fi to check for updates.", true);
+  };
+
+  // Launcher shortcut (long-press the icon → "Update all"): check, then update.
+  async function launchAction() {
+    if (A?.takeLaunchAction() !== "update-all") return;
+    if (!(await waitFor(() => settings?.install_path, 5000))) return;
+    if (!navigator.onLine) return toast("You're offline. Connect to Wi-Fi to update addons.", true);
+    document.querySelector('.tab[data-tab="installed"]').click();
+    if (checkedOnce) {
+      await rescan(true);
+      await checkUpdates(true);
+    } else await waitFor(() => checkedOnce && !busy, 120000);
+    if (!$("btn-update-all").disabled) $("btn-update-all").click();
+    else toast("Everything is up to date");
+  }
+  window.afLaunch = launchAction;
+  launchAction();
+
   onboard();
 })();
