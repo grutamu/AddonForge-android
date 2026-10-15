@@ -113,11 +113,10 @@
     const vertical = dir === "UP" || dir === "DOWN";
     // Up and down inside the side pane stay in it (its text is read by
     // scrolling, not by jumping to the list); Left and Back leave it.
-    const pane = $("pane");
-    const inPane = vertical && scope() === body && pane.contains(cur);
+    if (vertical && scope() === body && $("pane").contains(cur)) return paneMove(dir === "DOWN", cur);
     let best = null, bestScore = Infinity;
     for (const el of candidates()) {
-      if (el === cur || (inPane && !pane.contains(el))) continue;
+      if (el === cur) continue;
       const c = el.getBoundingClientRect();
       const ex = c.left + c.width / 2, ey = c.top + c.height / 2;
       let along;
@@ -133,16 +132,60 @@
       const score = along + side * 4 + (vertical ? Math.abs(ex - cx) * 0.05 : Math.abs(ey - cy) * 0.05);
       if (score < bestScore) { best = el; bestScore = score; }
     }
-    if (inPane) {
-      // The next button is out of sight (or there is none): scroll the text
-      // towards it first, a step at a time, while there is more to scroll.
-      const pr = pane.getBoundingClientRect();
-      const b = best?.getBoundingClientRect();
-      const inView = b && b.bottom > pr.top && b.top < pr.bottom;
-      const more = dir === "UP" ? pane.scrollTop > 0 : pane.scrollTop + pane.clientHeight < pane.scrollHeight - 1;
-      if (!inView && more) return pane.scrollBy({ top: (dir === "UP" ? -1 : 1) * Math.round(pane.clientHeight * 0.6), behavior: "smooth" });
-    }
     if (best) focus(best);
+  }
+
+  // Reading the side pane with the stick. While there is more text that way,
+  // each press scrolls it a step, then the focus moves onto the next button
+  // that way once it is fully in sight (Update, Pin, … sit under the text);
+  // from the bar pinned under the text (Open its page / Install) that is a
+  // button that has just come into sight. A focused button scrolled out of
+  // sight hands the focus to the pinned bar, so it is always on screen.
+  // At either end the focus steps to the nearest button in sight that way.
+  const PINNED = ".row.right, .pane-actions";
+  let paneTimer = 0;
+  function paneMove(down, cur) {
+    const pane = $("pane");
+    const els = candidates().filter((el) => pane.contains(el));
+    const flow = els.filter((el) => !el.closest(PINNED));
+    const pinned = els.filter((el) => el.closest(PINNED));
+    const inSight = (el) => {
+      const pr = pane.getBoundingClientRect();
+      const bars = pinned.map((p) => p.closest(PINNED).getBoundingClientRect().top).filter((t) => t < pr.bottom);
+      const bottom = bars.length ? Math.min(...bars) : pr.bottom;
+      const c = el.getBoundingClientRect();
+      return c.top >= pr.top - 1 && c.bottom <= bottom + 1;
+    };
+    // Buttons that way from `from`, nearest first (from the pinned bar: all of them).
+    const ahead = (from) => {
+      const i = flow.indexOf(from);
+      if (down) return i < 0 ? flow : flow.slice(i + 1);
+      return (i < 0 ? flow : flow.slice(0, i)).reverse();
+    };
+    // The next button that way is already in sight: just go there (from the
+    // pinned bar that only works upwards, nothing is under it).
+    const near = cur.closest(PINNED) ? (down ? null : ahead(cur).find(inSight)) : ahead(cur)[0];
+    if (near && inSight(near)) return focus(near);
+    const more = down ? pane.scrollTop + pane.clientHeight < pane.scrollHeight - 1 : pane.scrollTop > 0;
+    if (!more) {
+      if (down && cur.closest(PINNED)) return; // nothing under the pinned bar
+      const n = ahead(cur).find(inSight) || (!cur.closest(PINNED) && ahead(cur)[0]);
+      if (n) return focus(n);
+      if (down && pinned[0]) focus(pinned[0]);
+      return;
+    }
+    const before = new Set(flow.filter(inSight));
+    const step = Math.round(pane.clientHeight * 0.6);
+    pane.scrollBy({ top: down ? step : -step, behavior: "smooth" });
+    clearTimeout(paneTimer);
+    paneTimer = setTimeout(() => {
+      const at = current();
+      if (!at || !pane.contains(at)) return;
+      const fromBar = !!at.closest(PINNED);
+      const n = ahead(at).find((el) => inSight(el) && (!fromBar || !before.has(el)));
+      if (n) focus(n);
+      else if (!fromBar && !inSight(at) && pinned[0]) focus(pinned[0]);
+    }, 350);
   }
 
   // Re-renders replace the focused row: find the same row / button again.
