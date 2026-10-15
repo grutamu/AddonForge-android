@@ -1,8 +1,9 @@
 #!/usr/bin/env bash
 # Android launcher icons from src-tauri/icons/android/{foreground,monochrome}.svg
 # (the ember and anvil from icon.svg, without the tile) plus icon.svg for the
-# legacy square / round icons. Renders into a temp folder with `tauri icon`, so
-# the desktop icons in src-tauri/icons are never touched.
+# legacy square / round icons, and the UI's own copy of the mark (ui/icon.svg).
+# Renders into a temp folder with `tauri icon`, so src-tauri/icons is never
+# touched.
 set -euo pipefail
 cd "$(dirname "$0")/.."
 res=src-tauri/gen/android/app/src/main/res
@@ -12,6 +13,7 @@ trap 'rm -rf "$tmp"' EXIT
 npx tauri icon icon.svg --output "$tmp/full" >/dev/null
 npx tauri icon src-tauri/icons/android/foreground.svg --output "$tmp/fg" >/dev/null
 npx tauri icon src-tauri/icons/android/monochrome.svg --output "$tmp/mono" >/dev/null
+cp icon.svg ui/icon.svg
 
 for d in mdpi hdpi xhdpi xxhdpi xxxhdpi; do
   mkdir -p "$res/mipmap-$d"
