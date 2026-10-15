@@ -23,17 +23,20 @@ node scripts/security-check.mjs
 
 All three must pass before a commit. CI runs the same three on macOS for
 every pull request and every push to `android` (`.github/workflows/build.yml`;
-changes to only `catalog/` or Markdown skip it). The release workflow runs
-the UI checks and the security gate again before it builds.
+Markdown-only changes skip it). The release workflow runs the UI checks and
+the security gate again before it builds.
 
-### `cargo test`: 14 tests
+### `cargo test`: 22 tests
 
 | Area | Test | What it proves |
 |---|---|---|
 | Install discovery | `wow::finds_game_roots_on_a_volume_and_in_download` | The Android storage scan finds a game root (`.build.info` + `_classic_beta_`) at a volume's top level and in its Download folder |
 | TOC parsing | `wow::strips_colour_codes` | `\|cffXXXXXX` colour codes are stripped from titles |
-| Grouping | `managed_folders_stay_with_their_package`, `modules_group_under_their_core_without_catalogue`, `managed_source_wins_and_github_key_is_used` | Folders group into the right addon (BigWigs/DBM modules under their core); a recorded install source wins |
+| Grouping | `managed_folders_stay_with_their_package`, `modules_group_under_their_core_without_catalogue`, `managed_source_wins_and_github_key_is_used`, `folder_matching_prefers_the_addon_named_after_the_folder` | Folders group into the right addon (BigWigs/DBM modules under their core); a recorded install source wins; a shared folder goes to the addon named after it |
 | Dependencies | `missing_dependencies_are_reported_and_matched_to_catalogue` | Missing required deps are listed and matched to catalogue entries |
+| Catalogue | `catalog::converts_forever_curse_entries_and_links_unique_github_repos` | instawow's list is filtered to Forever CurseForge entries, and a GitHub repo is attached only when exactly one claims the entry |
+| Versions | `sources::bundle_release_names_every_folder_version`, `bundle_addon_shows_its_own_version_and_matches_the_bundle_release` | A bundle release (Questie `v12.1.0+v1.0.6`) is up to date when it names every folder's version |
+| CurseForge (unofficial) | `sources::curseforge::picks_newest_forever_release_before_betas`, `sources::curseforge::alpha_only_when_nothing_else_and_flags_non_forever`, `sources::curseforge::cdn_url_splits_the_id_and_encodes_the_name`, `curseforge_only_with_the_switch_and_only_as_last_resort` | The cfwidget file pick and download URL, and CurseForge is used only with the switch on and only when no other source exists |
 | Install safety | `install::safety_scan_refuses_executables` | A zip with an executable (extension or `MZ` header) or a symlink is refused |
 | Install safety | `install::removing_a_folder_never_follows_a_link` | Removing an addon folder never deletes through a link (SavedVariables stay safe) |
 | Sources | `sources::parses_github_inputs` | `owner/repo` and GitHub URLs parse |
@@ -81,7 +84,7 @@ What the script does:
 4. Steps through every tab with R1, opens search with Y and backs out with B.
 5. After each step, fails if the process has died, and at the end fails if
    anything was written to the crash log.
-6. Saves screenshots of the top screen (`1-launch.png` … `6-back-home.png`)
+6. Saves screenshots of the top screen (`1-launch.png` … `5-back-home.png`)
    to the output folder, by default `$TMPDIR/addonforge-smoke`.
 
 It never presses A on an addon action, so it doesn't install, update or
@@ -138,7 +141,8 @@ AddOns folder. Before trying them, back up
 | **writes** Install | Install one small addon (e.g. BlizzMove). It appears in My addons, `Interface/AddOns` has its folder(s) and no `.addonforge-tmp` is left behind, and it shows in the in-game addon list |
 | **writes** Update | Pin a version or install an older one, run Check, then Update. Only that addon's folders change |
 | **writes** Remove | Remove it. Only the folders it owns are deleted; `WTF/` is untouched |
-| **writes** Starter pack "Install all" | Each addon installs in turn; ones not built for Forever are skipped with a message |
+| Pad buttons | Press the physical buttons: A selects, B goes back, X runs the main action, Y opens search. The app follows Android's mapping, so with the Thor's ABXY layout mode switched, A and B swap |
+| Report on GitHub | Settings → Report on GitHub while signed out of GitHub in the browser: GitHub's sign-in page opens (not an error page) and the diagnostics are on the clipboard |
 | Export / Import | The system pickers and share sheet open, and an exported list imports back with the right plan |
 | Offline | Turn off Wi-Fi: the offline banner shows, and nothing crashes on Check |
 | Resume re-check | Leave the app for more than 10 minutes and come back: it re-checks quietly |
@@ -166,3 +170,13 @@ Installing and the permission screen were not tried in that round.
 **2026-10-15, `android` at `170b1ce`.** Host checks: 14 Rust tests, the UI
 checks and the security gate all passed. No device run was recorded with
 this entry.
+
+**2026-10-15, `prototype/instawow-catalogue` merged into `android`.**
+Catalogue from instawow's list; starter packs, the guide and the controller
+layout setting removed; report link fix. Host checks: 22 Rust tests, the UI
+checks and the security gate all passed. On the Thor, the smoke test passed
+(three tabs, no crash), the catalogue loaded (5,210 entries) and A / B / Y
+did their jobs when sent through adb. "Report on GitHub" while signed out
+used to open a ~5,900-character link that GitHub answered with an error
+page; it now opens the sign-in page with the diagnostics copied. X and the
+physical buttons were not tried.
