@@ -29,13 +29,14 @@ function iconTile(kind, id, name) {
   const letter = esc(String(name || "?").replace(/^[^a-z0-9]+/i, "").charAt(0).toUpperCase() || "?");
   return `<span class="ico" data-ico="${esc(kind + ":" + id)}" aria-hidden="true">${src ? `<img src="${src}" alt="">` : letter}</span>`;
 }
-// Fetch icons for rows that don't have one yet and drop them into the DOM in place (no re-render).
+// Fetch icons for installed rows that don't have one yet and drop them into the DOM in place (no re-render).
+// Only installed addons have icons (their own icon file); catalogue rows keep their letter tile.
 async function loadIcons(kind, ids) {
   const want = ids.filter((id) => !icons.has(kind + ":" + id));
   if (!want.length) return;
   let got;
   try {
-    got = await invoke(kind === "p" ? "package_icons" : "catalog_icons", kind === "p" ? { keys: want } : { ids: want });
+    got = await invoke("package_icons", { keys: want });
   } catch (_) {
     return;
   }
@@ -481,7 +482,6 @@ function renderCatalog() {
         })
         .join("") + (all.length > rows.length ? `<div class="empty">Showing ${rows.length} of ${all.length}. Search to find the rest.</div>` : "")
     : `<div class="empty">Nothing matches.</div>`;
-  loadIcons("c", rows.map((e) => e.id));
   setBusy(busy);
 }
 

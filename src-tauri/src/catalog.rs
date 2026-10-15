@@ -52,9 +52,6 @@ pub struct CatalogEntry {
     /// Does the author publish a Forever build?  true / false / null=unknown.
     #[serde(default)]
     pub forever: Option<bool>,
-    /// Optional https icon for the Browse list (else the GitHub avatar is used).
-    #[serde(default)]
-    pub icon: Option<String>,
     /// A short line shown on the installed row, e.g. "beta workaround, remove
     /// once Blizzard fixes X". Changing it is a catalogue edit, no release needed.
     #[serde(default)]

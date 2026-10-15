@@ -902,17 +902,7 @@ async fn bundles(app: State<'_, Shared>) -> Result<Vec<BundleView>, String> {
         .collect())
 }
 
-/// The addon's own icon from its GitHub repo, folders named after the addon
-/// first (DBM's list starts with "DBM-Brawlers", its icon is in DBM-Core).
-async fn repo_icon(app: &App, repo: &str, name: &str, folders: &[String]) -> Option<String> {
-    let probe = CatalogEntry { name: name.to_string(), ..Default::default() };
-    let mut ordered: Vec<String> = folders.to_vec();
-    ordered.sort_by_key(|f| !named_after(&probe, f));
-    let (c, r) = (app.client.clone(), repo.to_string());
-    icon_cached(app, format!("gh:{repo}"), async move { icons::github_icon(&c, &r, &ordered).await }).await
-}
-
-/// Icons for installed packages: own icon file, else the icon in its GitHub repo, else none.
+/// Icons for installed packages: the addon's own icon file, else none.
 #[tauri::command]
 async fn package_icons(app: State<'_, Shared>, keys: Vec<String>) -> Result<HashMap<String, String>, String> {
     let install = current_install(&app).await?;
@@ -927,44 +917,8 @@ async fn package_icons(app: State<'_, Shared>, keys: Vec<String>) -> Result<Hash
             })
             .await;
         }
-        if icon.is_none() {
-            if let Some(Source::Github(repo)) = &p.source {
-                icon = repo_icon(&app, repo, &p.name, &p.folders).await;
-            }
-        }
         if let Some(i) = icon {
             out.insert(p.key, i);
-        }
-    }
-    Ok(out)
-}
-
-/// Icons for catalogue entries: explicit `icon` URL, else the icon in its
-/// GitHub repo. A few at a time: a repo's first look can take several requests.
-#[tauri::command]
-async fn catalog_icons(app: State<'_, Shared>, ids: Vec<String>) -> Result<HashMap<String, String>, String> {
-    let cat = catalog_cached(&app).await;
-    let sem = Arc::new(Semaphore::new(6));
-    let mut set = tokio::task::JoinSet::new();
-    for e in cat.addons.into_iter().filter(|e| ids.contains(&e.id) && (e.icon.is_some() || e.github.is_some())) {
-        let (app, sem) = (app.inner().clone(), sem.clone());
-        set.spawn(async move {
-            let _permit = sem.acquire().await;
-            let icon = match (&e.icon, &e.github) {
-                (Some(url), _) => {
-                    let (c, u) = (app.client.clone(), url.clone());
-                    icon_cached(&app, format!("url:{url}"), async move { icons::remote_icon(&c, &u).await }).await
-                }
-                (None, Some(repo)) => repo_icon(&app, repo, &e.name, &e.folders).await,
-                _ => None,
-            };
-            (e.id, icon)
-        });
-    }
-    let mut out = HashMap::new();
-    while let Some(Ok((id, icon))) = set.join_next().await {
-        if let Some(i) = icon {
-            out.insert(id, i);
         }
     }
     Ok(out)
@@ -1301,7 +1255,6 @@ pub fn run() {
             bundles,
             catalog_featured,
             package_icons,
-            catalog_icons,
             addon_details,
             install_catalog,
             install_source,
