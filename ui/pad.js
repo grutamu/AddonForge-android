@@ -8,10 +8,10 @@
 
   // Lists are rebuilt with innerHTML: make rows focusable, keep the focus.
   function prepare(root) {
-    root.querySelectorAll(".item, .feat").forEach((el) => { el.tabIndex = 0; el.setAttribute("role", "button"); });
-    root.querySelectorAll(".addon-detail, .c-src a, .feat-name").forEach((el) => { el.tabIndex = -1; });
+    root.querySelectorAll(".item").forEach((el) => { el.tabIndex = 0; el.setAttribute("role", "button"); });
+    root.querySelectorAll(".addon-detail, .c-src a").forEach((el) => { el.tabIndex = -1; });
   }
-  for (const id of ["installed-list", "browse-list", "featured-list", "bundle-list"]) {
+  for (const id of ["installed-list", "browse-list", "bundle-list"]) {
     const list = $(id);
     new MutationObserver(() => {
       prepare(list);
@@ -94,7 +94,7 @@
     const s = scope();
     if (s !== body) return focus(candidates()[0]);
     const panel = document.querySelector(".panel.active");
-    const pick = panel.querySelector(".item.selected") || panel.querySelector(".item[tabindex], .bundle .chip, .feat") || candidates().find((el) => panel.contains(el));
+    const pick = panel.querySelector(".item.selected") || panel.querySelector(".item[tabindex], .bundle .chip") || candidates().find((el) => panel.contains(el));
     focus(pick || candidates()[0]);
   }
 

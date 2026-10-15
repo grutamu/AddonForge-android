@@ -80,9 +80,7 @@ In the app: **Settings → Report a problem → Report on GitHub**. It opens a n
 
 ## Where addons come from
 
-AddonForge reads your `Interface/AddOns` folder and each addon's `.toc` file to work out where it was published. On top of that there is a **catalogue**, a list of where each author publishes releases. Downloads always come straight from the author, never from a copy.
-
-The catalogue and the download counts are maintained by the original AddonForge project. To get an addon listed or featured, use [their contributing guide](https://github.com/Topher121/AddonForge/blob/main/CONTRIBUTING.md).
+AddonForge reads your `Interface/AddOns` folder and each addon's `.toc` file to work out where it was published. On top of that there is a **catalogue**: [instawow's public list](https://github.com/layday/instawow-data) of addons CurseForge tags for Forever, plus the starter packs in this repo. Downloads always come straight from where the author publishes, never from a copy.
 
 | Source | Key needed? | Notes |
 |---|---|---|
@@ -90,7 +88,7 @@ The catalogue and the download counts are maintained by the original AddonForge 
 | Wago Addons | Your own free key | Paste it in Settings. Only sent to addons.wago.io. |
 | WoWInterface | No | |
 | TukUI | No | ElvUI / Tukui. |
-| CurseForge | Link only | Their API terms don't allow a key to ship inside an app. |
+| CurseForge | No | Link only unless you turn on **Install CurseForge-only addons (unofficial)** in Settings. Their API terms don't allow a key to ship inside an app. |
 
 ## How it's built
 

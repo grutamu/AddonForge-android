@@ -76,19 +76,6 @@ pub struct Bundle {
     pub note: String,
 }
 
-/// A free, author-requested spotlight for one week (or any date range).
-/// Applied for with the "Feature my addon" issue form; added by pull request.
-#[derive(Serialize, Deserialize, Clone, Debug, Default)]
-pub struct Featured {
-    pub id: String,
-    /// Inclusive dates, YYYY-MM-DD.
-    pub from: String,
-    pub to: String,
-    /// One sentence from the author.
-    #[serde(default)]
-    pub blurb: String,
-}
-
 #[derive(Serialize, Deserialize, Clone, Debug, Default)]
 pub struct Catalog {
     #[serde(default)]
@@ -99,8 +86,6 @@ pub struct Catalog {
     pub addons: Vec<CatalogEntry>,
     #[serde(default)]
     pub bundles: Vec<Bundle>,
-    #[serde(default)]
-    pub featured: Vec<Featured>,
     /// Downloads and last update per entry id, from the same source.
     #[serde(default)]
     pub stats: Stats,

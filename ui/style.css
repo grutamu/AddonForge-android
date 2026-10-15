@@ -107,16 +107,6 @@ input::placeholder { color: var(--dim); }
 .guide-body p { margin: 0 0 8px; color: var(--muted); font-size: 12px; line-height: 1.55; }
 .guide-body b { color: var(--text); }
 .guide-body code { color: var(--accent-2); }
-.featured { padding-top: 12px; }
-.featured .section-title { margin-top: 0; }
-.featured-list { display: grid; grid-template-columns: repeat(auto-fill, minmax(230px, 1fr)); gap: 8px; }
-.feat { display: flex; gap: 10px; align-items: flex-start; border: 1px solid var(--line); border-radius: 5px; padding: 10px 12px; background: var(--bg-2); min-width: 0; }
-.feat .ico { width: 34px; height: 34px; }
-.feat-body { min-width: 0; flex: 1; }
-.feat-name { font-weight: 600; cursor: pointer; }
-.feat-name:hover { color: var(--accent-2); }
-.feat-blurb { color: var(--muted); font-size: 12px; line-height: 1.45; margin: 2px 0 6px; display: -webkit-box; -webkit-line-clamp: 3; -webkit-box-orient: vertical; overflow: hidden; }
-.feat-meta { color: var(--dim); font-size: 11px; }
 .bundles { display: grid; grid-template-columns: repeat(auto-fill, minmax(320px, 1fr)); gap: 8px; }
 .bundle { border: 1px solid var(--line); border-radius: 5px; padding: 10px 12px; background: var(--bg-2); display: flex; flex-direction: column; gap: 6px; }
 .bundle-head { display: flex; align-items: center; gap: 8px; }
@@ -367,10 +357,6 @@ input[type=text], input[type=search], input[type=password] { min-height: 46px; f
 .item.selected:hover { background: #27251f; }
 
 /* browse extras */
-#featured .hint:not(.inline) { display: none; }
-.featured-list { display: flex; gap: 8px; overflow-x: auto; scrollbar-width: none; padding-bottom: 2px; }
-.feat { flex: 0 0 250px; cursor: pointer; }
-.feat-blurb { -webkit-line-clamp: 2; font-size: 13px; }
 #tab-browse > .hint { font-size: 13px; }
 
 /* starter packs */
@@ -397,7 +383,7 @@ input[type=text], input[type=search], input[type=password] { min-height: 46px; f
 /* ---------------------------------------------------------------- focus + pad hints */
 :focus { outline: none; }
 body.pad-used :focus { outline: 3px solid var(--accent); outline-offset: 2px; box-shadow: 0 0 0 6px #d5ae6133; }
-body.pad-used .item:focus, body.pad-used .feat:focus { outline-offset: -3px; }
+body.pad-used .item:focus { outline-offset: -3px; }
 body.pad-used :is(#btn-update-all, #detail-install, #modal-yes)::after,
 body.pad-used :is(#modal-no, #detail-close)::after { content: var(--g-primary); display: inline-grid; place-items: center; width: 20px; height: 20px; margin-left: 10px; border: 1.5px solid currentColor; border-radius: 50%; font-size: 11px; font-weight: 700; line-height: 1; vertical-align: middle; }
 body.pad-used :is(#modal-no, #detail-close)::after { content: var(--g-back); }

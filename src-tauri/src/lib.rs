@@ -856,12 +856,6 @@ struct BundleView {
     addons: Vec<BundleAddon>,
 }
 
-/// The catalogue's featured list, raw. The UI picks what applies today.
-#[tauri::command]
-async fn catalog_featured(app: State<'_, Shared>) -> Result<Vec<catalog::Featured>, String> {
-    Ok(catalog_cached(&app).await.featured)
-}
-
 #[tauri::command]
 async fn bundles(app: State<'_, Shared>) -> Result<Vec<BundleView>, String> {
     let cat = catalog_cached(&app).await;
@@ -1253,7 +1247,6 @@ pub fn run() {
             update_package,
             catalog_list,
             bundles,
-            catalog_featured,
             package_icons,
             addon_details,
             install_catalog,
