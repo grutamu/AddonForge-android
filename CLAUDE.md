@@ -290,6 +290,9 @@ Target is ONLY the Thor's top screen in landscape (~833x469 CSS px, Android
   - Launcher shortcut (res/xml/shortcuts.xml, long-press the icon): extra
     `af_action=update-all` → `takeLaunchAction()` / `afLaunch()` → check, then
     Update all. MainActivity is exported, so only that one value is honoured.
+- Decided by the owner (2026-10-14), don't re-propose: the catalogue and
+  stats.json stay fetched from Topher121/AddonForge (upstream) for now; no
+  layout for the Thor's bottom screen.
 - `scripts/android-smoke.sh [apk] [out]`: install, launch, walk every tab with
   the pad, fail on a crash, screenshots of the top screen. Gotchas found while
   testing: an attached WebView DevTools session itself sets KEEP_SCREEN_ON (so
