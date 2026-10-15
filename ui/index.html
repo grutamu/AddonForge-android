@@ -5,6 +5,7 @@
 <meta name="viewport" content="width=device-width,initial-scale=1">
 <title>AddonForge</title>
 <link rel="stylesheet" href="style.css">
+<link rel="stylesheet" href="touch.css">
 </head>
 <body>
 <header class="top">
@@ -164,6 +165,17 @@
       </div>
     </div>
 
+    <div class="pref android-only">
+      <div class="pref-label">Controller</div>
+      <div class="pref-body">
+        <div class="row pad-layouts" role="radiogroup" aria-label="Button layout">
+          <button class="btn pad-layout" data-layout="nintendo" role="radio">Nintendo<span>A confirms · B goes back</span></button>
+          <button class="btn pad-layout" data-layout="xbox" role="radio">Xbox<span>B confirms · A goes back</span></button>
+        </div>
+        <p class="hint">Match the buttons printed on your controller. Press any button to test: <b id="pad-test">nothing pressed yet</b></p>
+      </div>
+    </div>
+
     <div class="pref">
       <div class="pref-label">About</div>
       <div class="pref-body about">
@@ -191,10 +203,49 @@
     </div>
     <p id="detail-desc"></p>
     <div id="detail-body" class="detail-body"></div>
+    <div id="detail-actions" class="detail-actions android-only"></div>
     <div class="row right">
       <span id="detail-note" class="muted grow"></span>
       <button id="detail-open" class="btn">Open its page</button>
       <button id="detail-install" class="btn primary">Install</button>
+    </div>
+  </div>
+</div>
+<aside id="pane" class="pane android-only" aria-label="Details">
+  <div id="pane-home" class="pane-home">
+    <div class="pane-home-installed">
+      <div class="pane-title">My addons</div>
+      <p class="pane-stats"><b id="pane-total">0</b> installed · <b id="pane-updates">0</b> to update · <b id="pane-attention">0</b> need attention</p>
+      <p class="muted" id="pane-folder"></p>
+      <div class="pane-tools"></div>
+      <p class="hint">Select an addon to see its versions, notes and options.</p>
+      <div class="pane-actions"></div>
+    </div>
+    <div class="pane-home-browse">
+      <div class="pane-title">Find addons</div>
+      <p class="hint">Select an addon to read about it and install it. Featuring is free and always will be.</p>
+      <div class="pane-tools"></div>
+    </div>
+    <div class="pane-home-start"></div>
+  </div>
+</aside>
+<div id="onboard" class="onboard hidden" role="dialog" aria-modal="true" aria-labelledby="onboard-title">
+  <div class="onboard-card">
+    <img src="icon.svg" alt="" class="onboard-mark">
+    <h1 id="onboard-title">Welcome to AddonForge</h1>
+    <div id="onboard-access">
+      <p>AddonForge installs and updates addons in your WoW: Forever game folder.</p>
+      <p class="muted">That folder was made by your WoW launcher, so Android needs you to allow <b>All files access</b>. AddonForge only ever changes <code>Interface/AddOns</code>.</p>
+      <button id="onboard-allow" class="btn primary big">Allow file access</button>
+    </div>
+    <div id="onboard-find" class="hidden">
+      <p id="onboard-find-text"><span class="spinner"></span> Looking for your game folder…</p>
+      <div id="onboard-found" class="onboard-found"></div>
+      <div id="onboard-manual" class="hidden">
+        <p class="muted">Type the full path to the folder that holds <code>_classic_beta_</code>, or to <code>_classic_beta_</code> itself.</p>
+        <div class="row"><input id="onboard-path" type="text" spellcheck="false" placeholder="/storage/emulated/0/WoW/_classic_beta_" aria-label="Game folder path"><button id="onboard-use" class="btn primary">Use this folder</button></div>
+        <button id="onboard-retry" class="btn">Look again</button>
+      </div>
     </div>
   </div>
 </div>
@@ -208,5 +259,6 @@
   </div>
 </div>
 <script src="app.js"></script>
+<script src="touch.js"></script>
 </body>
 </html>

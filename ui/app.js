@@ -40,8 +40,9 @@ async function loadIcons(kind, ids) {
   }
 }
 // ForeverSVFix patches addon folders; a fresh folder needs its Apply / Refresh again.
+// It is a Windows tool, so Android never mentions it.
 function svfixReminder(msg) {
-  return settings?.svfix ? `${msg}. ForeverSVFix: run Apply / Refresh before launching WoW` : msg;
+  return settings?.svfix && !isAndroid() ? `${msg}. ForeverSVFix: run Apply / Refresh before launching WoW` : msg;
 }
 function fmtCount(n) {
   if (n == null) return "";
@@ -210,7 +211,7 @@ function renderInstalled() {
             : "";
           const entry = catalog.find((c) => c.id === p.catalog_id);
           const sub = esc(entry?.category || p.author || `${p.folders.length} folder${p.folders.length === 1 ? "" : "s"}`);
-          return `<div class="item ${p.ignored ? "ignored" : ""} ${p.status === "no-source" || p.status === "curse-only" ? "dim" : ""}" data-key="${esc(p.key)}">
+          return `<div class="item ${p.ignored ? "ignored" : ""} ${p.status === "no-source" || p.status === "curse-only" ? "dim" : ""} ${p.key === detailPackageKey ? "selected" : ""}" data-key="${esc(p.key)}">
         <div class="c-name">${iconTile("p", p.key, p.name)}<div class="nm-wrap"><button class="nm addon-detail" data-package-detail="${esc(p.key)}" aria-haspopup="dialog" title="View addon details">${esc(p.name)}</button>${flags ? `<span class="flags">${flags}</span>` : ""}${sub ? `<div class="sub-line">${sub}</div>` : ""}</div></div>
         <div class="c-ver" title="Installed version">${ver}</div>
         <div class="c-ver available" title="Available version">${remote}</div>
@@ -240,6 +241,7 @@ function renderInstalled() {
     (updates ? ` · ${updates} update${updates === 1 ? "" : "s"}` : "") +
     (errors ? ` · ${errors} error${errors === 1 ? "" : "s"}` : "") +
     (ignored ? ` · ${ignored} ignored` : "");
+  renderPackageActions();
   setBusy(busy);
 }
 
@@ -290,12 +292,16 @@ $("installed-list").addEventListener("click", async (e) => {
   }
   const btn = e.target.closest("button[data-act]");
   if (!btn || busy) return;
-  const key = btn.closest(".item").dataset.key;
-  const p = packages.find((x) => x.key === key);
+  const p = packages.find((x) => x.key === btn.closest(".item").dataset.key);
   if (!p) return;
-  const act = btn.dataset.act;
   const menu = btn.closest("details");
   if (menu) menu.open = false;
+  await packageAction(btn.dataset.act, p, btn);
+});
+
+// One addon's actions, from its row menu or (Android) the details pane.
+async function packageAction(act, p, btn) {
+  const key = p.key;
   if (act === "update") await updateOne(p);
   if (act === "dep") {
     const entry = catalog.find((c) => c.id === btn.dataset.id) || { id: btn.dataset.id, name: btn.dataset.id };
@@ -317,6 +323,7 @@ $("installed-list").addEventListener("click", async (e) => {
     try {
       await invoke("remove_package", { key });
       toast(`Removed ${p.name}`);
+      if (detailPackageKey === key) closeDetail();
       await rescan();
     } catch (err) {
       toast(String(err), true);
@@ -324,7 +331,7 @@ $("installed-list").addEventListener("click", async (e) => {
       setBusy(false);
     }
   }
-});
+}
 
 function explainError(err) {
   const s = String(err);
@@ -480,6 +487,7 @@ let detailId = null;
 let detailSeq = 0;
 let detailEntry = null;
 let detailFocus = null;
+let detailPackageKey = null; // installed addon shown in the details (Android: the pane)
 function sourceLabel(e) {
   return e.github ? `GitHub \u00b7 ${e.github}` : e.wago ? "Wago" : e.wowi ? "WoWInterface" : e.tukui ? "TukUI" : "CurseForge";
 }
@@ -495,6 +503,8 @@ async function openDetail(id, installedPackage = null) {
   detailFocus = document.activeElement;
   detailEntry = e;
   detailId = id || `package:${installedPackage.key}`;
+  detailPackageKey = installedPackage?.key || null;
+  markSelected();
   const seq = ++detailSeq;
   const iconKey = installedPackage ? "p:" + installedPackage.key : "c:" + id;
   const src = icons.get(iconKey);
@@ -515,10 +525,12 @@ async function openDetail(id, installedPackage = null) {
   const needsKey = e.wago && !e.github && !e.wowi && !e.tukui && !settings?.has_wago_key;
   $("detail-install").textContent = e.installed ? "Reinstall" : "Install";
   $("detail-install").classList.toggle("hidden", !canInstall);
-  $("detail-note").textContent = needsKey ? "Needs a Wago key (Settings)." : canInstall ? "" : installedPackage ? "Manage this addon from its row menu." : "Not installable from here: get it from its page.";
+  $("detail-note").textContent = needsKey ? "Needs a Wago key (Settings)." : canInstall ? "" : installedPackage && !isAndroid() ? "Manage this addon from its row menu." : installedPackage ? "" : "Not installable from here: get it from its page.";
   $("detail-open").classList.toggle("hidden", !entryUrl(e));
+  renderPackageActions();
   $("detail").classList.remove("hidden");
-  $("detail-close").focus();
+  // Android shows details in a side pane: focus stays on the list for the D-pad.
+  if (!isAndroid()) $("detail-close").focus();
   if (!e.github) return;
   let d = null;
   try {
@@ -535,9 +547,47 @@ function closeDetail() {
   $("detail").classList.add("hidden");
   detailId = null;
   detailEntry = null;
+  detailPackageKey = null;
+  markSelected();
   ++detailSeq;
   detailFocus?.focus();
 }
+function markSelected() {
+  document.querySelectorAll("#installed-list .item").forEach((row) => row.classList.toggle("selected", row.dataset.key === detailPackageKey));
+}
+// Android: the installed addon's versions, notes and options, as plain buttons
+// with their explanations (the desktop keeps them in the row menu and tooltips).
+function renderPackageActions() {
+  const box = $("detail-actions");
+  const p = detailPackageKey && packages.find((x) => x.key === detailPackageKey);
+  if (!isAndroid() || !p) {
+    box.innerHTML = "";
+    return;
+  }
+  $("detail-install").classList.add("hidden");
+  const canUpdate = p.source && p.status !== "no-key";
+  const versions = `Installed <b>${esc(p.installed_version || "unknown")}</b>` + (p.remote_version ? ` · Available <b>${esc(p.remote_version)}</b>` : "");
+  const notes = [
+    p.note ? `<div class="note ${p.status === "error" ? "err" : ""}">${esc(p.note)}</div>` : "",
+    p.notice ? `<div class="note warn">${esc(p.notice)}</div>` : "",
+    p.supports_forever ? "" : `<div class="note warn">No Forever build found in its files. It may error in game.</div>`,
+    ...p.missing_deps.map((d) => `<div class="note warn">Needs <b>${esc(d.name || d.folder)}</b> ${d.catalog_id ? `<button class="btn small" data-act="dep" data-id="${esc(d.catalog_id)}">Install it</button>` : "(not in the catalogue)"}</div>`),
+  ].join("");
+  const act = (name, label, why, cls = "") => `<button class="btn act ${cls}" data-act="${name}">${label}${why ? `<span>${why}</span>` : ""}</button>`;
+  box.innerHTML = `<div class="pkg-status">${badge(p)} <span class="muted">${versions}</span></div>${notes}<div class="act-list">` +
+    (canUpdate && p.status === "update" && !p.pinned ? act("update", "Update", `To ${esc(p.remote_version || "the latest")}`, "primary") : "") +
+    (canUpdate && !(p.status === "update" && !p.pinned) ? act("update", p.status === "update" ? "Update" : p.managed ? "Reinstall" : "Install", p.status === "update" ? "Pinned, so Update all skips it" : "Download the current release again") : "") +
+    act("pin", p.pinned ? "Allow updates" : "Pin version", p.pinned ? "Let Update all update it again" : `Hold at ${esc(p.installed_version || "this version")}; Update all skips it`) +
+    act("ignore", p.ignored ? "Unignore" : "Ignore", p.ignored ? "Show it and check it for updates again" : "Hide it and stop checking for updates") +
+    act("remove", "Remove", "Deletes its folders; settings in WTF are kept", "danger") +
+    `</div>`;
+}
+$("detail-actions").addEventListener("click", async (e) => {
+  const btn = e.target.closest("button[data-act]");
+  const p = detailPackageKey && packages.find((x) => x.key === detailPackageKey);
+  if (!btn || !p || busy) return;
+  await packageAction(btn.dataset.act, p, btn);
+});
 $("detail-close").onclick = closeDetail;
 $("detail").addEventListener("click", (e) => { if (e.target === $("detail")) closeDetail(); });
 document.addEventListener("keydown", (e) => { if (e.key === "Escape" && detailId) closeDetail(); });
@@ -766,7 +816,7 @@ async function loadSettings() {
     ? "Game folder connected"
     : "No game folder selected — choose one in Settings";
   $("install-line").classList.toggle("connected", !!settings.install);
-  $("svfix-note").classList.toggle("hidden", !settings.svfix);
+  $("svfix-note").classList.toggle("hidden", !settings.svfix || isAndroid());
   $("footer-open-folder").disabled = !settings.install;
   if (isAndroid()) {
     // No folder picker, file explorer or exe self-update on Android.
@@ -974,7 +1024,12 @@ async function checkSelf(manual = false) {
   }
   if (selfUpdate.available && selfUpdate.latest) {
     const l = selfUpdate.latest;
-    $("selfupdate-text").innerHTML = `A new version of AddonForge is available (<b>v${esc(l.version)}</b> build ${esc(l.build)}). Please update to the latest.`;
+    if (isAndroid()) {
+      // Android installs the APK itself: send the user to the release page.
+      $("selfupdate-text").innerHTML = `AddonForge <b>v${esc(l.version)}</b>${l.build ? ` build ${esc(l.build)}` : ""} is out.`;
+      $("selfupdate-go").textContent = "Get it";
+      $("selfupdate-skip").textContent = "Not now";
+    } else $("selfupdate-text").innerHTML = `A new version of AddonForge is available (<b>v${esc(l.version)}</b> build ${esc(l.build)}). Please update to the latest.`;
     $("selfupdate").classList.remove("hidden");
   } else {
     $("selfupdate").classList.add("hidden");
@@ -987,6 +1042,7 @@ $("selfupdate-skip").onclick = async () => {
   $("selfupdate").classList.add("hidden");
 };
 $("selfupdate-go").onclick = async () => {
+  if (isAndroid()) return selfUpdate?.latest?.url && openUrl(selfUpdate.latest.url);
   const go = $("selfupdate-go");
   go.innerHTML = '<span class="spinner"></span> Downloading';
   go.disabled = true;

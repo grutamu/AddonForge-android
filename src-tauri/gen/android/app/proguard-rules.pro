@@ -19,3 +19,7 @@
 # If you keep the line number information, uncomment this to
 # hide the original source file name.
 #-renamesourcefileattribute SourceFile
+# MainActivity.Bridge is called from the UI by name (window.AddonForgeAndroid).
+-keepclassmembers class * {
+    @android.webkit.JavascriptInterface <methods>;
+}
