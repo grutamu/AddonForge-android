@@ -170,3 +170,12 @@ body.android .detail-card .row.right:not(:has(.btn:not(.hidden))) { display: non
 body.android .act-list { margin-bottom: 20px; }
 body.android .btn.found.primary span { color: var(--accent-ink); opacity: .75; }
 body.android .onboard-found [data-other] { align-self: center; }
+
+/* snackbar (Undo), offline line, onboarding picker row */
+body.android .snackbar { position: fixed; left: calc(var(--rail) + 16px); bottom: 16px; z-index: 31; display: flex; align-items: center; gap: 14px; max-width: calc(100vw - var(--rail) - var(--pane) - 32px); padding: 8px 8px 8px 16px; border: 1px solid var(--line-2); border-radius: 10px; background: var(--bg-3); box-shadow: 0 8px 24px #0009; font-size: 14px; }
+body.android .snackbar span { flex: 1; min-width: 0; }
+body.android .snackbar .btn { color: var(--accent-2); border-color: transparent; font-weight: 600; }
+body.android[data-tab=settings] .snackbar { max-width: calc(100vw - var(--rail) - 32px); }
+body.android .toast { z-index: 32; }
+body.android .banner.offline { background: #2b1c1b; border-bottom-color: #5a3633; color: #e8b4ae; }
+body.android .row.center { justify-content: center; gap: 12px; margin: 12px 0; }

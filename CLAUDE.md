@@ -266,8 +266,30 @@ Target is ONLY the Thor's top screen in landscape (~833x469 CSS px, Android
   `src-tauri/icons/android/foreground.svg`, ember and anvil without the tile;
   monochrome for Android 13 themed icons; background #18202C) through
   `tauri icon` into a temp folder, so desktop icons are untouched.
-- Not done yet (P1/P2 in the plan): system folder picker, share-sheet
-  export/import, snackbar Undo, auto-check on resume.
+- Android system features (2026-10-14, build 2), all through the
+  `AddonForgeAndroid` bridge, wired in touch.js by REPLACING app.js globals
+  / handlers (`setBusy`, `toast`, `packageAction`, `checkUpdates`, the
+  btn-pick / btn-export / btn-import onclicks); app.js keeps the desktop versions:
+  - Folder: `pickFolder(id)` = system folder picker; the tree URI becomes a
+    path (`primary:` → /storage/emulated/0, `XXXX-XXXX:` → /storage/XXXX-XXXX).
+    `setGameFolder` retries with `/_classic_beta_` appended, so picking the
+    game root works. Pickers answer via `afResult(id, value|null)`.
+  - Export = `export_list` into `cacheDir()` + `share()` (share sheet);
+    import = `pickFile(id)` copies the document to cache/import.json.
+    `res/xml/file_paths.xml` only exposes cache + files/AddonForge (the
+    log). The old fixed Download/addonforge-list.json path is gone.
+  - "Share the log" in Report a problem; `keepAwake(bool)` while busy;
+    `haptic()` on Installed / Updated / Removed toasts; snackbar Undo for
+    Pin / Ignore; an offline banner, and checks refuse to run offline;
+    quiet re-check on resume after 10 min.
+  - Launcher shortcut (res/xml/shortcuts.xml, long-press the icon): extra
+    `af_action=update-all` → `takeLaunchAction()` / `afLaunch()` → check, then
+    Update all. MainActivity is exported, so only that one value is honoured.
+- `scripts/android-smoke.sh [apk] [out]`: install, launch, walk every tab with
+  the pad, fail on a crash, screenshots of the top screen. Gotchas found while
+  testing: an attached WebView DevTools session itself sets KEEP_SCREEN_ON (so
+  test keep-awake without it), and `adb shell settings put system font_scale
+  1.3` is the quick large-font check (`settings delete system font_scale` to restore).
 
 ## Footprint (measured 2026-09-22, 20s idle after launch, private bytes)
 Exe ~5 MB on disk. v0.1.0: ~170 MB private total (app ~6 MB + six WebView2

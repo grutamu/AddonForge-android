@@ -1,4 +1,6 @@
 <resources>
     <string name="app_name">"AddonForge"</string>
     <string name="main_activity_title">"AddonForge"</string>
+    <string name="shortcut_update_short">Update all</string>
+    <string name="shortcut_update_long">Check and update all addons</string>
 </resources>
