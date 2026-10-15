@@ -1074,7 +1074,7 @@ $("selfupdate-go").onclick = async () => {
     .then((w) => {
       if (!w) return;
       $("modal-no").classList.add("hidden");
-      confirmModal(`<p><b>AddonForge v${esc(w.version)} build ${esc(w.build)}</b> is installed. What changed:</p><div class="whatsnew">${esc(w.notes)}</div>`, "OK")
+      confirmModal(`<p><b>AddonForge ${isAndroid() ? esc(w.version) : `v${esc(w.version)} build ${esc(w.build)}`}</b> is installed. What changed:</p><div class="whatsnew">${esc(w.notes)}</div>`, "OK")
         .finally(() => $("modal-no").classList.remove("hidden"));
     })
     .catch(() => {});
