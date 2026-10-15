@@ -1,5 +1,6 @@
 // Security gate. Fails (exit 1) if the shipped configuration weakens any protection. Run by `npm run check`,
-// by scripts/selfcheck.js, and by desktop/build.ps1 before every build, so a weakened build cannot be produced.
+// by the host CI job (build.yml) and by the Android release workflow before every APK, so a weakened build
+// cannot be published.
 //
 // Studio rule (Chris 2026-10-01): nothing we build may turn off a security protection. See ~/.claude/CLAUDE.md.
 import { readFileSync, existsSync } from 'node:fs';
@@ -53,14 +54,45 @@ if (existsSync(capDir)) {
 }
 
 // ---- The UI must not need inline scripts or styles (CSP would block them, and allowing them weakens it) ----
-for (const f of ['index.html', 'app.js']) {
+for (const f of readdirSafe(resolve(ROOT, 'ui')).filter((n) => /\.(html|js)$/.test(n))) {
   const p = resolve(ROOT, 'ui', f);
-  if (!existsSync(p)) continue;
   const s = readFileSync(p, 'utf8');
   if (/\sstyle="/.test(s)) problems.push(`ui/${f}: inline style="" attribute (move it to style.css)`);
   if (f.endsWith('.html') && /<script(?![^>]*\ssrc=)/i.test(s)) problems.push(`ui/${f}: inline <script> block`);
   if (/\son[a-z]+="/i.test(s)) problems.push(`ui/${f}: inline event handler attribute`);
   if (/\beval\(|new Function\(/.test(s)) problems.push(`ui/${f}: eval / new Function`);
+}
+
+// ---- Android: no WebView debugging, no debuggable or cleartext release builds ----
+const android = resolve(ROOT, 'src-tauri/gen/android/app');
+if (existsSync(android)) {
+  const sources = [];
+  const collect = (dir) => {
+    for (const name of readdirSafe(dir)) {
+      const p = resolve(dir, name);
+      if (isDir(p)) collect(p);
+      else if (/\.(kt|java)$/.test(name)) sources.push(p);
+    }
+  };
+  collect(resolve(android, 'src'));
+  for (const p of sources) {
+    if (/setWebContentsDebuggingEnabled\s*\(\s*true\s*\)/.test(readFileSync(p, 'utf8'))) problems.push(`${p.replace(ROOT, '.')}: turns on WebView remote debugging (local testing only, never commit it)`);
+  }
+  const manifest = resolve(android, 'src/main/AndroidManifest.xml');
+  if (existsSync(manifest)) {
+    const m = readFileSync(manifest, 'utf8');
+    if (/android:debuggable\s*=\s*"true"/.test(m)) problems.push('AndroidManifest.xml: android:debuggable="true"');
+    if (/android:usesCleartextTraffic\s*=\s*"true"/.test(m)) problems.push('AndroidManifest.xml: android:usesCleartextTraffic="true"');
+  }
+  const gradle = resolve(android, 'build.gradle.kts');
+  if (existsSync(gradle)) {
+    const g = readFileSync(gradle, 'utf8');
+    if (!/manifestPlaceholders\["usesCleartextTraffic"\]\s*=\s*"false"/.test(g)) problems.push('app/build.gradle.kts: the default usesCleartextTraffic placeholder must be "false"');
+    const release = g.slice(g.indexOf('getByName("release")'));
+    const block = release.slice(0, release.indexOf('\n        }'));
+    if (/isDebuggable\s*=\s*true/.test(block)) problems.push('app/build.gradle.kts: the release build is debuggable');
+    if (/usesCleartextTraffic"\]\s*=\s*"true"/.test(block)) problems.push('app/build.gradle.kts: the release build allows cleartext traffic');
+  }
 }
 
 // ---- Repo must never touch antivirus or Windows security settings ----
@@ -98,4 +130,4 @@ if (problems.length) {
   console.error('SECURITY CHECK FAILED:\n - ' + problems.join('\n - '));
   process.exit(1);
 }
-console.log(`security check OK — webview protections on, CSP set (${cspText.length} chars), no inline scripts/styles, nothing touches Windows security settings`);
+console.log(`security check OK — webview protections on, CSP set (${cspText.length} chars), no inline scripts/styles in ui/, Android release not debuggable or cleartext, nothing touches Windows security settings`);
