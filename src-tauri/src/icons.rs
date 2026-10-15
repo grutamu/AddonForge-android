@@ -8,7 +8,7 @@
 //! are not readable from disk and are deliberately NOT fetched from any
 //! third-party site: the app only talks to the addon hosts.
 //!
-//! Everything is cached in `%APPDATA%\AddonForge\icons\` as 32px PNGs and
+//! Everything is cached in `icons/` beside the state file as 32px PNGs and
 //! handed to the UI as data URLs.
 
 use base64::Engine;

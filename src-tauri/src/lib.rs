@@ -535,7 +535,7 @@ async fn find_installs(app: State<'_, Shared>) -> Result<Vec<WowInstall>, String
 async fn set_install_path(app: State<'_, Shared>, path: String) -> Result<WowInstall, String> {
     let p = PathBuf::from(path.trim());
     let info = wow::describe_install(&p)
-        .ok_or_else(|| "That folder doesn't look like a WoW product folder (expected e.g. ...\\_classic_beta_ with Interface\\AddOns inside)".to_string())?;
+        .ok_or_else(|| "That folder doesn't look like a WoW product folder (expected e.g. .../_classic_beta_ with Interface/AddOns inside)".to_string())?;
     let mut st = app.state.lock().await;
     st.install_path = Some(info.path.clone());
     st.save().map_err(err)?;

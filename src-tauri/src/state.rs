@@ -1,4 +1,4 @@
-//! Persistent local state: `%APPDATA%\AddonForge\state.json`.
+//! Persistent local state: `state.json` in the app's private files folder.
 //!
 //! This is the only settings file the app writes outside the game's AddOns
 //! folder (plus `addonforge.log` beside it). Written atomically (tmp +
@@ -22,7 +22,7 @@ pub struct Installed {
 
 #[derive(Serialize, Deserialize, Clone, Debug, Default)]
 pub struct AppState {
-    /// Product folder we manage, e.g. `C:\...\World of Warcraft\_classic_beta_`.
+    /// Product folder we manage, e.g. `/storage/emulated/0/WoW Forever/_classic_beta_`.
     #[serde(default)]
     pub install_path: Option<String>,
     /// Optional user-supplied Wago Addons API key (stored locally only).
@@ -53,8 +53,8 @@ pub fn now_secs() -> u64 {
 }
 
 impl AppState {
-    /// `%APPDATA%\AddonForge`. `ADDONFORGE_STATE_DIR` overrides it so tests and
-    /// screenshots can use a throwaway profile without touching the real one.
+    /// The app's private files folder on Android. `ADDONFORGE_STATE_DIR`
+    /// overrides it so tests and screenshots can use a throwaway profile.
     pub fn dir() -> PathBuf {
         if let Some(dir) = std::env::var_os("ADDONFORGE_STATE_DIR").filter(|v| !v.is_empty()) {
             return PathBuf::from(dir);
@@ -67,10 +67,10 @@ impl AppState {
             let pkg = String::from_utf8_lossy(cmdline.split(|b| *b == 0).next().unwrap_or_default()).to_string();
             return PathBuf::from(format!("/data/data/{}/files", pkg.split(':').next().unwrap_or_default())).join("AddonForge");
         }
+        // The Mac preview and `cargo test` get a throwaway profile, never a
+        // real one.
         #[cfg(not(target_os = "android"))]
-        dirs::config_dir()
-            .unwrap_or_else(|| PathBuf::from("."))
-            .join("AddonForge")
+        std::env::temp_dir().join("AddonForge-host")
     }
 
     pub fn path() -> PathBuf {
