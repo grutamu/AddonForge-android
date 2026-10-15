@@ -376,6 +376,31 @@ pub async fn github_details(client: &reqwest::Client, repo: &str) -> Details {
     Details { summary, image }
 }
 
+/// Summary and thumbnail for a CurseForge project (unofficially, through
+/// cfwidget). Cached a day.
+pub async fn curse_details(client: &reqwest::Client, id: u64) -> Details {
+    let cache = cache_dir().join(format!("{}.json", key(&format!("curse|{id}"))));
+    if let Ok(meta) = fs::metadata(&cache) {
+        let fresh = meta.modified().ok().and_then(|m| m.elapsed().ok()).map(|age| age < README_TTL).unwrap_or(false);
+        if fresh {
+            if let Some(d) = fs::read(&cache).ok().and_then(|b| serde_json::from_slice::<CachedDetails>(&b).ok()) {
+                return Details { summary: d.summary, image: d.image_url.as_deref().and_then(preview_cached) };
+            }
+        }
+    }
+    let Some((line, text, thumb)) = crate::sources::curseforge::details(client, id).await else { return Details::default() };
+    let text = if text.starts_with(line.trim()) { text } else { format!("{line} {text}") };
+    let summary = Some(readme_excerpt(&text)).filter(|s| !s.is_empty());
+    let image = match &thumb {
+        Some(u) => preview_image(client, u).await,
+        None => None,
+    };
+    let _ = fs::create_dir_all(cache_dir());
+    let cached = CachedDetails { summary: summary.clone(), image_url: thumb.filter(|_| image.is_some()) };
+    let _ = fs::write(&cache, serde_json::to_vec(&cached).unwrap_or_default());
+    Details { summary, image }
+}
+
 fn preview_path(url: &str) -> PathBuf {
     cache_dir().join(format!("{}.jpg", key(&format!("preview|{url}"))))
 }

@@ -1,0 +1,231 @@
+{
+  "note": "Starter packs. Ids are catalogue ids: curse-<CurseForge id> for addons in instawow's list, else an entry in `extra` (pack addons that aren't on CurseForge). `about` gives pack addons from instawow's list (which has no descriptions) a one-line description.",
+  "about": {
+    "curse-942432": "Modern one-bag inventory with categories. Good Baganator/Bagnon substitute.",
+    "curse-3358": "Boss mods: warnings, timers and range checks (core).",
+    "curse-6273": "Catches Lua errors so they don't spam you. Pairs with !BugGrabber.",
+    "curse-646135": "Quality-of-life improvements across the default UI.",
+    "curse-486246": "Levelling guides with an on-screen step tracker.",
+    "curse-324944": "Shows trainable spells. Forever build is CurseForge / GitHub pre-release only for now.",
+    "curse-257550": "Cinematic quest and gossip dialogue.",
+    "curse-22072": "Experience tracker.",
+    "curse-14647": "Rare mob scanner and alerts.",
+    "curse-100547": "Customisable nameplates with scripting and mods.",
+    "curse-1416019": "Group and raid utility reminders.",
+    "curse-1510306": "Loot roll helper built for Forever.",
+    "curse-1160664": "Remember players you've grouped with, good or bad.",
+    "curse-646134": "Move and scale any default UI frame.",
+    "curse-1454793": "Search anything in the UI: settings, spells, items, guides.",
+    "curse-904486": "Vendor prices in tooltips.",
+    "curse-962128": "One click to equip the best gear in your bags.",
+    "curse-940950": "Tweaks for the default unit frames.",
+    "curse-22067": "See what all your characters have in their bags and banks.",
+    "curse-13494": "Sort and stack your bags and bank.",
+    "curse-838806": "Frees bag space by selling/destroying junk.",
+    "curse-1443835": "Chat improvements.",
+    "curse-28603": "Lightweight chat frame tweaks.",
+    "curse-1431567": "Translate chat between languages.",
+    "curse-24993": "Notes on other players."
+  },
+  "extra": [
+    {
+      "id": "dbm-dungeons",
+      "name": "DBM Dungeons",
+      "desc": "DBM dungeon modules for every expansion, including Forever.",
+      "category": "Bosses",
+      "github": "DeadlyBossMods/DBM-Dungeons",
+      "folders": [
+        "DBM-Party-Forever",
+        "DBM-Party-Vanilla",
+        "DBM-Party-BC",
+        "DBM-Party-WotLK",
+        "DBM-Party-Cataclysm",
+        "DBM-Party-MoP",
+        "DBM-Party-WoD",
+        "DBM-Party-Legion",
+        "DBM-Party-BfA",
+        "DBM-Party-Shadowlands",
+        "DBM-Party-Dragonflight",
+        "DBM-Party-WarWithin",
+        "DBM-Party-Midnight",
+        "DBM-Challenges",
+        "DBM-Delves-Midnight",
+        "DBM-Delves-WarWithin",
+        "DBM-Test-Dungeons",
+        "DBM-WorldEvents"
+      ],
+      "url": "https://github.com/DeadlyBossMods/DBM-Dungeons",
+      "forever": true
+    },
+    {
+      "id": "dbm-vanilla",
+      "name": "DBM Vanilla Raids",
+      "desc": "DBM raid modules for the classic-era raids.",
+      "category": "Bosses",
+      "github": "DeadlyBossMods/DBM-Vanilla",
+      "asset_hint": "DBM-Vanilla",
+      "folders": [
+        "DBM-Raids-Vanilla",
+        "DBM-Azeroth",
+        "DBM-Test-Vanilla"
+      ],
+      "url": "https://github.com/DeadlyBossMods/DBM-Vanilla",
+      "forever": true
+    },
+    {
+      "id": "buggrabber",
+      "name": "!BugGrabber",
+      "desc": "Catches Lua errors quietly. BugSack needs it.",
+      "category": "Utility",
+      "wago": "7x61oyG1",
+      "folders": [
+        "!BugGrabber"
+      ],
+      "url": "https://addons.wago.io/addons/buggrabber",
+      "forever": true
+    },
+    {
+      "id": "auto-spell-ranks",
+      "name": "AutoSpellRanks",
+      "desc": "Keeps the highest spell rank on your bars.",
+      "category": "Action bars",
+      "github": "Moose-Ltd/AutoSpellRanks",
+      "folders": [
+        "AutoSpellRanks"
+      ],
+      "forever": true
+    },
+    {
+      "id": "edit-mode-expanded",
+      "name": "Edit Mode Expanded",
+      "desc": "More frames movable in Blizzard's Edit Mode.",
+      "category": "UI",
+      "github": "teelolws/EditModeExpanded",
+      "folders": [
+        "EditModeExpanded"
+      ],
+      "forever": true
+    },
+    {
+      "id": "minimap-button-button",
+      "name": "MinimapButtonButton",
+      "desc": "Collects minimap buttons into one.",
+      "category": "Minimap",
+      "github": "syndenbock/MinimapButtonButton",
+      "folders": [
+        "MinimapButtonButton"
+      ],
+      "forever": true
+    },
+    {
+      "id": "can-opener",
+      "name": "CanOpener",
+      "desc": "Opens lockboxes and containers for you.",
+      "category": "Bags",
+      "github": "Jassade/CanOpener",
+      "folders": [
+        "CanOpener"
+      ],
+      "forever": true
+    },
+    {
+      "id": "prat",
+      "name": "Prat 3.0",
+      "desc": "The standard chat addon: timestamps, colours, history, copy.",
+      "category": "Chat",
+      "github": "Legacy-of-Sylvanaar/prat-3-0",
+      "wago": "RNL9ae6o",
+      "folders": [
+        "Prat-3.0",
+        "Prat-3.0_Libraries"
+      ],
+      "url": "https://github.com/Legacy-of-Sylvanaar/prat-3-0"
+    }
+  ],
+  "bundles": [
+    {
+      "id": "good-start",
+      "name": "A good start",
+      "desc": "What most people end up wanting, if you only grab one pack.",
+      "addons": [
+        "curse-942432",
+        "curse-3358",
+        "dbm-dungeons",
+        "dbm-vanilla",
+        "curse-6273",
+        "buggrabber",
+        "curse-646135"
+      ],
+      "note": "Boss warnings are three parts (DBM core, dungeons, vanilla raids). BugSack wants !BugGrabber, which needs a free Wago key."
+    },
+    {
+      "id": "levelling",
+      "name": "Levelling",
+      "desc": "Guides, training, nicer quest text and rare-mob alerts.",
+      "addons": [
+        "curse-486246",
+        "curse-324944",
+        "curse-257550",
+        "auto-spell-ranks",
+        "curse-22072",
+        "curse-14647"
+      ],
+      "note": "Questie isn't out for Forever yet; the built-in quest tracker works fine meanwhile."
+    },
+    {
+      "id": "dungeons-raids",
+      "name": "Dungeons and raids",
+      "desc": "Boss timers, nameplates and group helpers.",
+      "addons": [
+        "curse-3358",
+        "dbm-dungeons",
+        "dbm-vanilla",
+        "curse-100547",
+        "curse-1416019",
+        "curse-1510306",
+        "curse-1160664"
+      ],
+      "note": "DBM rather than BigWigs for now: BigWigs' boss modules don't have Forever builds yet, so it would install empty."
+    },
+    {
+      "id": "quality-of-life",
+      "name": "Quality of life",
+      "desc": "Small fixes to the default interface you stop noticing after a day.",
+      "addons": [
+        "curse-646135",
+        "curse-646134",
+        "curse-1454793",
+        "edit-mode-expanded",
+        "curse-904486",
+        "curse-962128",
+        "minimap-button-button",
+        "curse-940950"
+      ]
+    },
+    {
+      "id": "bags",
+      "name": "Bags and inventory",
+      "desc": "One bag, sorted, and what your other characters are carrying.",
+      "addons": [
+        "curse-942432",
+        "curse-22067",
+        "curse-13494",
+        "curse-838806",
+        "can-opener"
+      ],
+      "note": "Bagnon and Baganator are CurseForge-only, so they aren't in the list; BetterBags does the same job."
+    },
+    {
+      "id": "chat-social",
+      "name": "Chat and social",
+      "desc": "Better chat, translation, and notes on people you meet.",
+      "addons": [
+        "prat",
+        "curse-1443835",
+        "curse-28603",
+        "curse-1431567",
+        "curse-24993"
+      ]
+    }
+  ]
+}

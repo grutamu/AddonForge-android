@@ -33,7 +33,6 @@ struct App {
     client: reqwest::Client,
     state: Mutex<AppState>,
     catalog: Mutex<Option<(Catalog, &'static str)>>,
-    stats: Mutex<Option<Stats>>,
     /// icon key -> data URL, for this run (disk cache underneath).
     icon_cache: Mutex<HashMap<String, Option<String>>>,
 }
@@ -118,29 +117,34 @@ fn pick_source(
         if let Some(t) = &e.tukui {
             return Some(Source::Tukui(t.clone()));
         }
-        // CurseForge is the last resort, but beats a Wago entry we have no key for.
-        if let Some(c) = e.curse.filter(|_| curse) {
-            return Some(Source::Curse(c));
-        }
-        if let Some(w) = &e.wago {
-            // Listed but user has no key: surface it so the UI can explain.
-            return Some(Source::Wago(w.clone()));
-        }
     }
-    if let Some(w) = &f.wago {
-        if has_wago || !(curse && f.curse.is_some()) {
-            return Some(Source::Wago(w.clone()));
-        }
+    // The addon's own files can name an official source the catalogue doesn't.
+    if let Some(w) = f.wago.as_ref().filter(|_| has_wago) {
+        return Some(Source::Wago(w.clone()));
     }
     if let Some(i) = f.wowi {
         return Some(Source::Wowi(i));
     }
-    if let Some(site) = &f.website {
-        if let Some(repo) = sources::parse_github_repo(site) {
-            return Some(Source::Github(repo));
-        }
+    if let Some(repo) = f.website.as_deref().and_then(sources::parse_github_repo) {
+        return Some(Source::Github(repo));
     }
-    f.curse.filter(|_| curse).map(Source::Curse)
+    // CurseForge is the last resort, but beats a Wago entry we have no key for.
+    if let Some(c) = entry.and_then(|e| e.curse).or(f.curse).filter(|_| curse) {
+        return Some(Source::Curse(c));
+    }
+    // Listed but user has no key: surface it so the UI can explain.
+    entry.and_then(|e| e.wago.clone()).or_else(|| f.wago.clone()).map(Source::Wago)
+}
+
+/// Lowercase letters and digits only: "DBM - Deadly Boss Mods (DBM-Core)" -> "dbmdeadlybossmodsdbmcore".
+fn squash(s: &str) -> String {
+    s.chars().filter(|c| c.is_ascii_alphanumeric()).collect::<String>().to_ascii_lowercase()
+}
+
+/// Does the entry's name contain this folder's name (`!BugGrabber` in "BugGrabber")?
+fn named_after(e: &CatalogEntry, folder: &str) -> bool {
+    let f = squash(folder);
+    !f.is_empty() && squash(&e.name).contains(&f)
 }
 
 /// Group scanned folders into packages and attach sources.
@@ -151,7 +155,17 @@ fn build_packages(st: &AppState, cat: &Catalog, folders: &[AddonFolder]) -> Vec<
     let mut by_wowi: HashMap<u64, &CatalogEntry> = HashMap::new();
     for e in &cat.addons {
         for f in &e.folders {
-            by_folder.insert(f.to_ascii_lowercase(), e);
+            // Several entries can ship the same folder (a library, a module, a
+            // repack): the one named after it wins, then the smallest. Big
+            // bundles never win a folder by name alone.
+            if e.folders.len() > 30 && !named_after(e, f) {
+                continue;
+            }
+            let rank = |x: &CatalogEntry| (!named_after(x, f), x.folders.len());
+            let slot = by_folder.entry(f.to_ascii_lowercase()).or_insert(e);
+            if rank(e) < rank(slot) {
+                *slot = e;
+            }
         }
         if let Some(w) = &e.wago {
             by_wago.insert(w.as_str(), e);
@@ -178,12 +192,20 @@ fn build_packages(st: &AppState, cat: &Catalog, folders: &[AddonFolder]) -> Vec<
 
     // First pass: direct keys (managed / catalogue / ids / standalone).
     let direct_key = |f: &AddonFolder| -> (String, Option<&CatalogEntry>) {
-        let cat_entry = by_folder
+        // The folder's own ids are exact; the folder name is a guess, and
+        // when the ids name something else only a close guess counts (an
+        // installed WeakAuras is not a repack that ships its folders).
+        let by_id = f
+            .curse
+            .and_then(|c| by_curse.get(&c).copied())
+            .or_else(|| f.wago.as_deref().and_then(|w| by_wago.get(w).copied()))
+            .or_else(|| f.wowi.and_then(|i| by_wowi.get(&i).copied()));
+        let has_ids = f.curse.is_some() || f.wago.is_some() || f.wowi.is_some();
+        let by_name = by_folder
             .get(&f.folder.to_ascii_lowercase())
             .copied()
-            .or_else(|| f.wago.as_deref().and_then(|w| by_wago.get(w).copied()))
-            .or_else(|| f.curse.and_then(|c| by_curse.get(&c).copied()))
-            .or_else(|| f.wowi.and_then(|i| by_wowi.get(&i).copied()));
+            .filter(|e| !has_ids || e.curse.is_none() || named_after(e, &f.folder));
+        let cat_entry = by_id.or(by_name);
         if let Some(k) = managed_folder.get(&f.folder.to_ascii_lowercase()) {
             let entry = k
                 .strip_prefix("cat:")
@@ -371,7 +393,7 @@ fn build_packages(st: &AppState, cat: &Catalog, folders: &[AddonFolder]) -> Vec<
 async fn catalog_cached(app: &App) -> Catalog {
     let mut guard = app.catalog.lock().await;
     if guard.is_none() {
-        let loaded = catalog::load(&app.client).await;
+        let loaded = catalog::load(&app.client, false).await;
         logi!("catalogue loaded: {} entries ({})", loaded.0.addons.len(), loaded.1);
         *guard = Some(loaded);
     }
@@ -379,13 +401,13 @@ async fn catalog_cached(app: &App) -> Catalog {
 }
 
 async fn stats_cached(app: &App) -> Stats {
-    let mut guard = app.stats.lock().await;
-    if guard.is_none() {
-        let s = catalog::load_stats(&app.client).await;
-        logi!("stats loaded: {} entries ({})", s.entries.len(), if s.updated.is_empty() { "none" } else { s.updated.as_str() });
-        *guard = Some(s);
-    }
-    guard.as_ref().unwrap().clone()
+    catalog_cached(app).await.stats
+}
+
+/// Does the catalogue vouch for a Forever build from `src`? Entries from
+/// instawow's list are tagged by CurseForge, so they vouch only for it.
+fn vouches(e: &CatalogEntry, src: &Source) -> bool {
+    e.forever == Some(true) && (e.curse.is_none() || matches!(src, Source::Curse(_)))
 }
 
 /// Icon for one thing, via the run cache: `local:<install>|<texture>` or `url:<https>`.
@@ -407,22 +429,34 @@ fn entry_hint(cat: &Catalog, pkg: &Package) -> (Option<String>, Option<bool>) {
 }
 
 async fn resolve_into(app: &App, pkg: &mut Package, cat: &Catalog) {
-    let Some(src) = pkg.source.clone() else { return };
+    let Some(mut src) = pkg.source.clone() else { return };
     let st = app.state.lock().await.clone();
     if matches!(src, Source::Wago(_)) && !st.has_wago_key() {
         return;
     }
-    let (hint, vouched) = entry_hint(cat, pkg);
+    let (hint, _) = entry_hint(cat, pkg);
+    let entry = pkg.catalog_id.as_ref().and_then(|id| cat.addons.iter().find(|e| &e.id == id));
     let opts = ResolveOpts {
         asset_hint: hint.as_deref(),
         wago_key: st.wago_key.as_deref(),
         prerelease: st.allow_prerelease,
     };
-    match sources::resolve(&app.client, &src, opts).await {
+    let mut res = sources::resolve(&app.client, &src, opts.clone()).await;
+    // No Forever build on GitHub: CurseForge may have one.
+    if let (Ok(r), Source::Github(_), Some(c), true) = (&res, &src, pkg.curse_id, st.curse_unofficial) {
+        if r.forever == Some(false) {
+            src = Source::Curse(c);
+            res = sources::resolve(&app.client, &src, opts).await;
+            pkg.source_label = src.label();
+            pkg.source = Some(src.clone());
+        }
+    }
+    let vouched = entry.map(|e| vouches(e, &src)).unwrap_or(false);
+    match res {
         Ok(mut r) => {
             // Some authors list 16001 in the TOC but never added "forever" to
             // release.json. If the catalogue vouches for it, don't scare people.
-            if r.forever == Some(false) && vouched == Some(true) {
+            if r.forever == Some(false) && vouched {
                 r.forever = None;
             }
             let same = pkg
@@ -644,15 +678,10 @@ async fn install_from(
     };
     let remote = sources::resolve(&app.client, src, opts).await.map_err(err)?;
     let vouched = match key.strip_prefix("cat:") {
-        Some(id) => catalog_cached(app)
-            .await
-            .addons
-            .iter()
-            .find(|e| e.id == id)
-            .and_then(|e| e.forever),
-        None => None,
+        Some(id) => catalog_cached(app).await.addons.iter().find(|e| e.id == id).map(|e| vouches(e, src)).unwrap_or(false),
+        None => false,
     };
-    if remote.forever == Some(false) && !allow_non_forever && vouched != Some(true) {
+    if remote.forever == Some(false) && !allow_non_forever && !vouched {
         return Err("NOT_FOREVER".into());
     }
     logi!("install {key} from {} {} -> {}", src.label(), remote.version, remote.download_url);
@@ -671,18 +700,69 @@ async fn install_from(
             loge!("place {key}: {e}");
             e.to_string()
         })?;
-    let rec = Installed {
+    let mut rec = Installed {
         source: src.kind().into(),
         source_id: src.id(),
         version: remote.version.clone(),
         folders,
         installed_at: state::now_secs(),
     };
+    // From CurseForge, but its TOC names a GitHub repo with a Forever build:
+    // future updates come from GitHub, the official way.
+    if matches!(src, Source::Curse(_)) {
+        if let Some(repo) = github_from_toc(&install, &rec.folders).await {
+            let opts = ResolveOpts { asset_hint: None, wago_key: None, prerelease: st.allow_prerelease };
+            match sources::resolve(&app.client, &Source::Github(repo.clone()), opts).await {
+                Ok(r) if r.forever != Some(false) => {
+                    logi!("{key}: updates from GitHub {repo} from now on");
+                    rec.source = "github".into();
+                    rec.source_id = repo;
+                }
+                _ => {}
+            }
+        }
+    }
     let mut st = app.state.lock().await;
     st.installed.insert(key.to_string(), rec.clone());
     st.save().map_err(err)?;
     logi!("installed {key} {} ({} folders)", rec.version, rec.folders.len());
     Ok(rec)
+}
+
+/// A GitHub repo named by the TOCs (X-Website) of these installed folders.
+async fn github_from_toc(install: &str, folders: &[String]) -> Option<String> {
+    let install = install.to_string();
+    let names: Vec<String> = folders.iter().map(|f| f.to_ascii_lowercase()).collect();
+    let scanned = tokio::task::spawn_blocking(move || wow::scan_addons(Path::new(&install))).await.ok()?;
+    scanned
+        .iter()
+        .filter(|f| names.contains(&f.folder.to_ascii_lowercase()))
+        .find_map(|f| f.website.as_deref().and_then(sources::parse_github_repo))
+}
+
+/// Install, and when GitHub has no Forever build fall back to CurseForge
+/// (unofficial switch on).
+async fn install_or_curse(
+    app: &App,
+    key: &str,
+    src: &Source,
+    curse_id: Option<u64>,
+    asset_hint: Option<&str>,
+    allow_non_forever: bool,
+) -> Result<Installed, String> {
+    match install_from(app, key, src, asset_hint, allow_non_forever).await {
+        Err(e) if e == "NOT_FOREVER" && matches!(src, Source::Github(_)) => {
+            let curse = app.state.lock().await.curse_unofficial;
+            match curse_id.filter(|_| curse) {
+                Some(c) => {
+                    logi!("{key}: no Forever build on GitHub, trying CurseForge");
+                    install_from(app, key, &Source::Curse(c), None, allow_non_forever).await
+                }
+                None => Err(e),
+            }
+        }
+        r => r,
+    }
 }
 
 async fn refreshed(app: &App, key: &str) -> Result<Package, String> {
@@ -710,7 +790,7 @@ async fn update_package(
     let src = pkg.source.clone().ok_or_else(|| "This addon has no update source".to_string())?;
     let cat = catalog_cached(&app).await;
     let (hint, _) = entry_hint(&cat, &pkg);
-    install_from(&app, &key, &src, hint.as_deref(), allow_non_forever.unwrap_or(false)).await?;
+    install_or_curse(&app, &key, &src, pkg.curse_id, hint.as_deref(), allow_non_forever.unwrap_or(false)).await?;
     refreshed(&app, &key).await
 }
 
@@ -728,8 +808,9 @@ struct CatalogRow {
 #[tauri::command]
 async fn catalog_list(app: State<'_, Shared>, refresh: Option<bool>) -> Result<Vec<CatalogRow>, String> {
     if refresh.unwrap_or(false) {
-        *app.catalog.lock().await = None;
-        *app.stats.lock().await = None;
+        let loaded = catalog::load(&app.client, true).await;
+        logi!("catalogue refreshed: {} entries ({})", loaded.0.addons.len(), loaded.1);
+        *app.catalog.lock().await = Some(loaded);
     }
     let cat = catalog_cached(&app).await;
     let stats = stats_cached(&app).await;
@@ -870,16 +951,17 @@ async fn catalog_icons(app: State<'_, Shared>, ids: Vec<String>) -> Result<HashM
     Ok(out)
 }
 
-/// Longer description + preview image for the details window. GitHub only
-/// for now (README excerpt and its first screenshot); other sources return
-/// nothing and the UI shows the catalogue description and a link.
+/// Longer description + preview image for the details window: the README
+/// excerpt and first screenshot for GitHub, cfwidget's summary and
+/// thumbnail for CurseForge, nothing for other sources.
 #[tauri::command]
 async fn addon_details(app: State<'_, Shared>, id: String) -> Result<icons::Details, String> {
     let cat = catalog_cached(&app).await;
     let Some(e) = cat.addons.iter().find(|e| e.id == id) else { return Ok(icons::Details::default()) };
-    match &e.github {
-        Some(repo) => Ok(icons::github_details(&app.client, repo).await),
-        None => Ok(icons::Details::default()),
+    match (&e.github, e.curse) {
+        (Some(repo), _) => Ok(icons::github_details(&app.client, repo).await),
+        (None, Some(id)) => Ok(icons::curse_details(&app.client, id).await),
+        _ => Ok(icons::Details::default()),
     }
 }
 
@@ -904,7 +986,7 @@ async fn install_catalog(
         return Err("This addon is on Wago: add your free Wago API key in Settings first".into());
     }
     let key = format!("cat:{}", e.id);
-    install_from(&app, &key, &src, e.asset_hint.as_deref(), allow_non_forever.unwrap_or(false)).await?;
+    install_or_curse(&app, &key, &src, e.curse, e.asset_hint.as_deref(), allow_non_forever.unwrap_or(false)).await?;
     refreshed(&app, &key).await
 }
 
@@ -1173,7 +1255,6 @@ fn make_app() -> Shared {
         client,
         state: Mutex::new(st),
         catalog: Mutex::new(None),
-        stats: Mutex::new(None),
         icon_cache: Mutex::new(HashMap::new()),
     })
 }
@@ -1339,5 +1420,29 @@ mod tests {
         );
         st.curse_unofficial = false;
         assert_eq!(by_name(&build_packages(&st, &cat, &folders), "Details").status, "curse-only");
+    }
+
+    #[test]
+    fn folder_matching_prefers_the_addon_named_after_the_folder() {
+        let st = AppState::default();
+        let mut bundle: Vec<String> = (0..40).map(|i| format!("X{i}")).collect();
+        bundle.push("!BugGrabber".into());
+        let cat = Catalog {
+            addons: vec![
+                CatalogEntry { id: "bundle".into(), name: "Big Bundle".into(), curse: Some(1), folders: bundle, ..Default::default() },
+                CatalogEntry { id: "sack".into(), name: "BugSack".into(), curse: Some(2), folders: vec!["BugSack".into(), "!BugGrabber".into()], ..Default::default() },
+                CatalogEntry { id: "grabber".into(), name: "BugGrabber".into(), curse: Some(3), folders: vec!["!BugGrabber".into(), "Extra".into(), "More".into()], ..Default::default() },
+                CatalogEntry { id: "repack".into(), name: "Musca Auras".into(), curse: Some(4), folders: vec!["WeakAuras".into()], ..Default::default() },
+            ],
+            ..Default::default()
+        };
+        let mut wa = folder("WeakAuras", &[], None);
+        wa.curse = Some(65387);
+        let pkgs = build_packages(&st, &cat, &[folder("!BugGrabber", &[], None), wa, folder("Needs", &["BugSack"], None)]);
+        let key = |n: &str| pkgs.iter().find(|p| p.folders.iter().any(|f| f == n)).unwrap().key.clone();
+        assert_eq!(key("!BugGrabber"), "cat:grabber", "named after the folder beats smaller");
+        assert_eq!(key("WeakAuras"), "curse:65387", "its own CurseForge id says it isn't the repack");
+        let needs = pkgs.iter().find(|p| p.name == "Needs").unwrap();
+        assert_eq!(needs.missing_deps[0].catalog_id.as_deref(), Some("sack"));
     }
 }

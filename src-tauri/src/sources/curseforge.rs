@@ -14,6 +14,13 @@ use serde::Deserialize;
 struct Project {
     #[serde(default)]
     files: Vec<File>,
+    #[serde(default)]
+    summary: String,
+    /// The project page as HTML.
+    #[serde(default)]
+    description: String,
+    #[serde(default)]
+    thumbnail: Option<String>,
 }
 
 #[derive(Deserialize, Debug, Clone)]
@@ -51,6 +58,32 @@ pub async fn resolve(client: &reqwest::Client, id: u64, prerelease: bool) -> any
         forever: Some(forever),
         prerelease: f.kind != "release",
     })
+}
+
+/// The project's summary line, its description as plain text, and its
+/// thumbnail, for the details pane.
+pub async fn details(client: &reqwest::Client, id: u64) -> Option<(String, String, Option<String>)> {
+    let p: Project = client.get(format!("https://api.cfwidget.com/{id}")).send().await.ok()?.error_for_status().ok()?.json().await.ok()?;
+    Some((p.summary, html_text(&p.description), p.thumbnail))
+}
+
+/// Tags dropped, entities for the common characters decoded, whitespace collapsed.
+fn html_text(html: &str) -> String {
+    let mut out = String::new();
+    let mut in_tag = false;
+    for c in html.chars() {
+        match c {
+            '<' => {
+                in_tag = true;
+                out.push(' ');
+            }
+            '>' => in_tag = false,
+            _ if !in_tag => out.push(c),
+            _ => {}
+        }
+    }
+    let out = out.replace("&nbsp;", " ").replace("&quot;", "\"").replace("&#39;", "'").replace("&lt;", "<").replace("&gt;", ">").replace("&amp;", "&");
+    out.split_whitespace().collect::<Vec<_>>().join(" ")
 }
 
 /// Newest Forever file: releases first, then betas, alpha only as a last

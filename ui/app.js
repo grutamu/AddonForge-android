@@ -15,7 +15,9 @@ let busy = false;
 let settings = null;
 let selfUpdate = null;
 let activeFilter = "all";
-let sortMode = "name";
+let sortMode = "downloads";
+// Thousands of catalogue entries: draw the first few hundred, search finds the rest.
+const BROWSE_MAX = 200;
 let bundles = [];
 let featuredRaw = []; // catalogue "featured" list; what applies today is worked out in renderFeatured
 const icons = new Map(); // "p:<package key>" / "c:<catalogue id>" -> data URL, or null when there is none
@@ -458,7 +460,8 @@ function sortedCatalog(rows) {
 
 function renderCatalog() {
   const q = $("browse-filter").value.trim().toLowerCase();
-  const rows = sortedCatalog(catalog.filter((e) => !q || `${e.name} ${e.desc} ${e.category} ${e.github || ""}`.toLowerCase().includes(q)));
+  const all = sortedCatalog(catalog.filter((e) => !q || `${e.name} ${e.desc} ${e.category} ${e.github || ""}`.toLowerCase().includes(q)));
+  const rows = all.slice(0, BROWSE_MAX);
   $("browse-list").innerHTML = rows.length
     ? rows
         .map((e) => {
@@ -469,15 +472,16 @@ function renderCatalog() {
           return `<div class="item" data-id="${esc(e.id)}">
             <div class="c-name clickable" data-detail="${esc(e.id)}" title="Details">${iconTile("c", e.id, e.name)}<div class="nm-wrap"><span class="nm">${esc(e.name)}</span><span class="flags">${fv}${e.installed ? ' <span class="badge ok">installed</span>' : ""}</span><div class="sub-line" title="${esc(e.desc || "")}">${esc(e.desc || "")}</div></div></div>
             <div class="c-cat muted">${esc(e.category || "")}</div>
-            <div class="c-dl" title="${e.downloads != null ? esc(e.downloads.toLocaleString() + " downloads, all time, counted on " + (e.stat_source === "wowi" ? "WoWInterface" : "GitHub")) : "No download count for this source"}">${e.downloads != null ? `<b>${fmtCount(e.downloads)}</b>` : `<span class="muted">\u2014</span>`}${e.updated_at ? `<div class="sub-line">${ago(e.updated_at)}</div>` : ""}</div>
+            <div class="c-dl" title="${e.downloads != null ? esc(e.downloads.toLocaleString() + " downloads, all time, counted on " + ({ wowi: "WoWInterface", curse: "CurseForge" }[e.stat_source] || "GitHub")) : "No download count for this source"}">${e.downloads != null ? `<b>${fmtCount(e.downloads)}</b>` : `<span class="muted">\u2014</span>`}${e.updated_at ? `<div class="sub-line">${ago(e.updated_at)}</div>` : ""}</div>
             <div class="c-src"><a href="#" data-url="${esc(e.url || (e.github ? "https://github.com/" + e.github : "#"))}">${esc(src)}</a></div>
             <div class="c-act">
               ${canInstall ? `<button class="btn small" data-act="install">${e.installed ? "Reinstall" : "Install"}</button>` : needsKey ? `<span class="badge no-key">needs Wago key</span>` : `<span class="badge curse-only">link only</span>`}
             </div>
           </div>`;
         })
-        .join("")
+        .join("") + (all.length > rows.length ? `<div class="empty">Showing ${rows.length} of ${all.length}. Search to find the rest.</div>` : "")
     : `<div class="empty">Nothing matches.</div>`;
+  loadIcons("c", rows.map((e) => e.id));
   setBusy(busy);
 }
 
@@ -486,7 +490,6 @@ async function loadCatalog(refresh) {
   try {
     catalog = await invoke("catalog_list", { refresh });
     renderCatalog();
-    loadIcons("c", catalog.map((e) => e.id));
     loadBundles();
     loadFeatured();
   } catch (err) {
@@ -544,26 +547,27 @@ async function openDetail(id, installedPackage = null) {
     (e.installed ? ' \u00b7 <span class="badge ok">installed</span>' : "");
   $("detail-desc").textContent = e.desc || "";
   const localInfo = installedPackage ? `<div class="muted">Folders: ${installedPackage.folders.map(esc).join(", ")}</div>` : "";
-  $("detail-body").innerHTML = localInfo + (e.github ? '<div class="muted"><span class="spinner"></span> Reading its README\u2026</div>' : "");
+  const more = e.github ? "Reading its README" : e.curse ? "Reading its CurseForge page" : "";
+  $("detail-body").innerHTML = localInfo + (more ? `<div class="muted"><span class="spinner"></span> ${more}\u2026</div>` : "");
   const canInstall = catalogInstallable(e);
   const needsKey = e.wago && !canInstall;
   $("detail-install").textContent = e.installed ? "Reinstall" : "Install";
   $("detail-install").classList.toggle("hidden", !canInstall);
-  $("detail-note").textContent = needsKey ? "Needs a Wago key (Settings)." : canInstall || installedPackage ? "" : "Not installable from here: get it from its page.";
+  $("detail-note").textContent = needsKey ? "Needs a Wago key (Settings)." : canInstall || installedPackage ? "" : e.curse ? "CurseForge only: get it from its page, or turn on the unofficial CurseForge switch in Settings." : "Not installable from here: get it from its page.";
   $("detail-open").classList.toggle("hidden", !entryUrl(e));
   renderPackageActions();
   $("detail").classList.remove("hidden");
   // The details show in the side pane: focus stays on the list for the D-pad.
-  if (!e.github) return;
+  if (!more) return;
   let d = null;
   try {
     d = await invoke("addon_details", { id });
   } catch (_) {}
   if (seq !== detailSeq || !detailId) return;
   const parts = [localInfo];
-  if (d?.image) parts.push(`<img class="shot" src="${d.image}" alt="Screenshot from the addon's README">`);
+  if (d?.image) parts.push(`<img class="shot" src="${d.image}" alt="${e.github ? "Screenshot from the addon's README" : "The addon's CurseForge picture"}">`);
   if (d?.summary) parts.push(`<div class="readme">${esc(d.summary)}</div>`);
-  if (!d?.image && !d?.summary) parts.push('<div class="muted">No README to show. Its page has the details.</div>');
+  if (!d?.image && !d?.summary) parts.push(`<div class="muted">${e.github ? "No README to show." : "Nothing to show."} Its page has the details.</div>`);
   $("detail-body").innerHTML = parts.join("");
 }
 function closeDetail() {
@@ -834,7 +838,7 @@ async function loadSettings() {
   $("pref-prerelease").checked = !!settings.allow_prerelease;
   $("pref-curse").checked = !!settings.curse_unofficial;
   $("catalog-info").textContent = settings.catalog_count
-    ? `${settings.catalog_count} addons · ${settings.catalog_source === "remote" ? "latest from GitHub" : "built-in copy (GitHub copy unreachable)"}${settings.catalog_updated ? " · " + settings.catalog_updated : ""}`
+    ? `${settings.catalog_count} addons · ${{ remote: "downloaded from instawow's list", cached: "today's copy of instawow's list", "cached (old)": "older copy (instawow's list unreachable)", "packs only": "starter packs only (instawow's list unreachable)" }[settings.catalog_source] || settings.catalog_source}${settings.catalog_updated ? " · " + settings.catalog_updated : ""}`
     : "not loaded yet";
 }
 
