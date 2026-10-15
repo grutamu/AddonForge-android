@@ -71,8 +71,18 @@ pub async fn check(client: &reqwest::Client, url_override: Option<&str>) -> Self
         tag: String::new(),
         error: None,
     };
-    // The release feed is Windows exes; Android updates by installing a new APK.
+    // The release feed is Windows exes. Android looks for an APK on the
+    // fork's latest release instead; the UI links to the release page.
     if cfg!(target_os = "android") {
+        match android_latest(client).await {
+            Ok(Some((l, newer))) => {
+                out.available = newer;
+                out.tag = format!("v{}-b{}", l.version, l.build);
+                out.latest = Some(l);
+            }
+            Ok(None) => {}
+            Err(e) => out.error = Some(e.to_string()),
+        }
         return out;
     }
     let res = async {
@@ -90,6 +100,59 @@ pub async fn check(client: &reqwest::Client, url_override: Option<&str>) -> Self
         Err(e) => out.error = Some(e.to_string()),
     }
     out
+}
+
+pub const ANDROID_RELEASES_API: &str = "https://api.github.com/repos/grutamu/AddonForge-android/releases/latest";
+
+#[derive(Deserialize)]
+struct GhRelease {
+    tag_name: String,
+    html_url: String,
+    #[serde(default)]
+    body: String,
+    #[serde(default)]
+    assets: Vec<GhAsset>,
+}
+
+#[derive(Deserialize)]
+struct GhAsset {
+    name: String,
+}
+
+/// Latest release with an `.apk` asset, and whether it is newer than this
+/// build. `url` is the release PAGE: Android installs APKs itself.
+async fn android_latest(client: &reqwest::Client) -> anyhow::Result<Option<(Latest, bool)>> {
+    let r: GhRelease = client
+        .get(ANDROID_RELEASES_API)
+        .header("Accept", "application/vnd.github+json")
+        .send()
+        .await?
+        .error_for_status()?
+        .json()
+        .await?;
+    let Some(apk) = r.assets.iter().find(|a| a.name.to_ascii_lowercase().ends_with(".apk")) else {
+        return Ok(None);
+    };
+    let (ver, num) = parse_tag(&r.tag_name);
+    let l = Latest { version: ver, build: num, url: r.html_url, filename: apk.name.clone(), notes: r.body, size: 0 };
+    let newer = android_is_newer(&l, version(), build());
+    Ok(Some((l, newer)))
+}
+
+/// `v0.4.0-b17` → ("0.4.0", 17); `v0.4.0` → ("0.4.0", 0).
+pub fn parse_tag(tag: &str) -> (String, u32) {
+    let t = tag.trim().trim_start_matches(['v', 'V']);
+    match t.split_once("-b") {
+        Some((v, b)) => (v.to_string(), b.parse().unwrap_or(0)),
+        None => (t.to_string(), 0),
+    }
+}
+
+/// Like `is_newer`, but a dev build (build 0) or an untagged build number
+/// only compares versions, so local builds aren't nagged forever.
+pub fn android_is_newer(l: &Latest, cur_version: &str, cur_build: u32) -> bool {
+    let (a, b) = (semver(&l.version), semver(cur_version));
+    a > b || (a == b && cur_build > 0 && l.build > cur_build)
 }
 
 /// Is this exe the portable download (`AddonForge-v0.2.0-b5.exe`) rather
@@ -177,4 +240,20 @@ pub fn finish_replace(old: &Path) {
         std::thread::sleep(std::time::Duration::from_millis(500));
     }
     crate::loge!("self-update: could not remove old exe {}", old.display());
+}
+
+#[cfg(test)]
+mod tests {
+    use super::*;
+
+    #[test]
+    fn android_tags_and_dev_builds() {
+        assert_eq!(parse_tag("v0.4.0-b17"), ("0.4.0".into(), 17));
+        assert_eq!(parse_tag("v0.4.0"), ("0.4.0".into(), 0));
+        let l = |v: &str, b| Latest { version: v.into(), build: b, ..Default::default() };
+        assert!(android_is_newer(&l("0.4.0", 0), "0.3.0", 0));
+        assert!(!android_is_newer(&l("0.3.0", 17), "0.3.0", 0), "dev builds only compare versions");
+        assert!(android_is_newer(&l("0.3.0", 17), "0.3.0", 16));
+        assert!(!android_is_newer(&l("0.3.0", 16), "0.3.0", 16));
+    }
 }

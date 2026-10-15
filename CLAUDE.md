@@ -197,6 +197,61 @@ GET /v1/games/{id}/version-types once the key exists.
   on 2026-10-02 a `--cli use` test pointed the owner's real state at a
   temp folder because of that. Always set ADDONFORGE_STATE_DIR for tests.
 
+## Android UI for the AYN Thor (fork grutamu/AddonForge-android, 2026-10-14)
+Target is ONLY the Thor's top screen in landscape (~833x469 CSS px, Android
+13, built-in gamepad). No portrait layout. Plan + decisions:
+`docs/android-ux-plan.md`.
+- `ui/touch.css` + `ui/touch.js` (loaded after style.css / app.js) do all of
+  it, scoped to `body.android`. touch.js returns at once on the desktop, so
+  Windows is untouched. Element ids are unchanged; touch.js MOVES existing
+  elements (Update all, Check, gh-repo row, guide, #detail) into the right-hand
+  pane rather than duplicating them. Desktop preview: localStorage `af-touch=1`.
+- Layout: nav rail (tabs + icons, update badge) | list | details pane
+  (#pane). The pane shows #detail when an addon is selected, else a per-tab
+  home (stats + tools / catalogue tools / the guide). Settings has no pane.
+  Selects become chips (a pad can't open a picker). Installed addon actions
+  (Update/Reinstall, Pin, Ignore, Remove, with explanations) are rendered by
+  `renderPackageActions()` in app.js; the desktop keeps its row menu.
+- Gamepad: MainActivity consumes every pad button, D-pad / hat / left stick
+  and system Back, and calls `afPad("A"|"B"|"X"|"Y"|"L1"|"R1"|"START"|"UP"…|"BACK")`.
+  Consuming them stops Android's fallbacks (BUTTON_B → Back). Default layout
+  Nintendo (A confirm, B back, X main action, Y search, L/R tabs, + = check);
+  Settings → Controller switches to Xbox (swaps A/B and X/Y), stored in
+  localStorage `af-pad-layout`, with a live "press a button" readout. The
+  Thor's `.kl` maps BTN_SOUTH→BUTTON_A, but its firmware has an ABXY layout
+  mode, so the readout is how users check. Spatial navigation is edge-based
+  in touch.js. Quirks handled there: the first D-pad press after touching is
+  eaten by Android (leaving touch mode) and the WebView focuses the first
+  tab instead, and so does opening the keyboard; `defaultFocusHighlightEnabled
+  = false` stops Android's grey wash over the whole WebView. The Thor's
+  D-pad can report as a HAT axis (device "Xbox Wireless Controller"), and
+  hat/stick motion never leaves touch mode, so the WebView had no Android
+  focus and the page drew no focus ring (bug, 2026-10-14). MainActivity now
+  requests WebView focus before every afPad call and on window focus, and
+  touch.js highlights the first addon at launch.
+- Back order: dialog → text box → details → My addons → exit (`finish()`).
+- First run: MainActivity no longer fires the permission screen on its own.
+  #onboard explains "All files access", the button calls
+  `AddonForgeAndroid.requestFileAccess()` (a JavascriptInterface:
+  hasFileAccess / requestFileAccess / showKeyboard / exit, kept by a proguard
+  rule), then finds the game or takes a typed path.
+- Full screen (system bars hidden, swipe to show), sensorLandscape, dark
+  window background, no leanback/TV entry.
+- ForeverSVFix is never mentioned on Android. Self-update: Android checks
+  `api.github.com/repos/grutamu/AddonForge-android/releases/latest` for an `.apk`
+  asset (tag `v<ver>-b<n>`; dev builds compare versions only) and the banner's
+  "Get it" opens the release page. No in-app installer, no Play button.
+- Build/test on the device: `npx tauri android build --apk --target aarch64`
+  then `adb install -r …/app-universal-release.apk`. For poking the page live,
+  add `WebView.setWebContentsDebuggingEnabled(true)` locally and use
+  `adb forward tcp:9333 localabstract:webview_devtools_remote_<pid>`; NEVER
+  commit it (studio security rule). `adb shell input gamepad keyevent
+  KEYCODE_BUTTON_A` etc. drives the pad. Revoking file access needs
+  `appops set --uid … MANAGE_EXTERNAL_STORAGE deny`.
+- Not done yet (P1/P2 in the plan): system folder picker, share-sheet
+  export/import, snackbar Undo, auto-check on resume, Android launcher icons
+  (still Tauri's default; `tauri icon` would also rewrite the desktop icons).
+
 ## Footprint (measured 2026-09-22, 20s idle after launch, private bytes)
 Exe ~5 MB on disk. v0.1.0: ~170 MB private total (app ~6 MB + six WebView2
 helper processes; working set ~350 MB but that double-counts shared Edge

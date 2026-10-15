@@ -70,10 +70,14 @@ installer both embed `src-tauri/icons/icon.ico`.
 
 ## Android (this fork)
 
-Runs on Android handhelds next to [wow-forever-android](https://github.com/jaredgei/wow-forever-android).
-It finds the game folder in shared storage (e.g. `Download/World of Warcraft/_classic_beta_`)
-and needs "All files access", which it asks for on first launch. Export / Import use
-`Download/addonforge-list.json`. No self-update: install a newer APK over the old one.
+Runs on Android handhelds next to [wow-forever-android](https://github.com/jaredgei/wow-forever-android),
+laid out for the AYN Thor's landscape screen and fully playable with its controller
+(Nintendo layout by default: A confirms, B goes back, X updates all, Y searches, L/R
+switch tabs; Settings → Controller switches to Xbox). It finds the game folder in shared
+storage (e.g. `Download/World of Warcraft/_classic_beta_`) and needs "All files access",
+which the first-run screen explains before asking. Export / Import use
+`Download/addonforge-list.json`. A banner links to the GitHub release page when a newer
+APK is out; install it over the old one.
 
 Needs Rust with the `aarch64-linux-android` target, JDK 17, the Android SDK and NDK.
 Put signing details in `src-tauri/gen/android/keystore.properties` (gitignored), then:
