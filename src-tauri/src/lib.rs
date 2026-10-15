@@ -950,33 +950,6 @@ async fn remove_package(app: State<'_, Shared>, key: String) -> Result<Vec<Strin
     Ok(gone)
 }
 
-#[tauri::command]
-async fn open_addons_folder(app: State<'_, Shared>) -> Result<String, String> {
-    let install = current_install(&app).await?;
-    let dir = addons_dir(&install);
-    if cfg!(target_os = "android") {
-        return Err(format!("Use a file manager to open {}", dir.display()));
-    }
-    std::process::Command::new("explorer").arg(&dir).spawn().map_err(err)?;
-    Ok(dir.to_string_lossy().to_string())
-}
-
-#[tauri::command]
-async fn open_log() -> Result<String, String> {
-    let p = log::path();
-    if !p.exists() {
-        std::fs::write(&p, "").map_err(err)?;
-    }
-    if cfg!(target_os = "android") {
-        return Err(format!("The log is at {}", p.display()));
-    }
-    std::process::Command::new("explorer")
-        .arg(format!("/select,{}", p.display()))
-        .spawn()
-        .map_err(err)?;
-    Ok(p.to_string_lossy().to_string())
-}
-
 // ---------------------------------------------------------------- import / export
 
 #[derive(Serialize, Deserialize, Clone, Debug)]
@@ -1216,8 +1189,6 @@ pub fn run() {
             install_source,
             install_github,
             remove_package,
-            open_addons_folder,
-            open_log,
             export_list,
             import_list,
             check_self_update,

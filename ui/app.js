@@ -818,12 +818,11 @@ async function loadSettings() {
     : "No game folder selected — choose one in Settings";
   $("install-line").classList.toggle("connected", !!settings.install);
   $("svfix-note").classList.toggle("hidden", !settings.svfix || isAndroid());
-  $("footer-open-folder").disabled = !settings.install;
   if (isAndroid()) {
     // No file explorer or exe self-update on Android; touch.js points the
     // folder button and export / import at Android's own pickers and share sheet.
     document.body.classList.add("android");
-    for (const id of ["btn-open-folder", "footer-open-folder", "btn-open-log", "btn-selfcheck"]) $(id).classList.add("hidden");
+    $("btn-selfcheck").classList.add("hidden");
     $("install-path").placeholder = "/storage/emulated/0/Download/World of Warcraft/_classic_beta_";
     $("btn-pick").textContent = "Choose folder…";
     $("btn-export").textContent = "Share my list…";
@@ -882,9 +881,6 @@ $("btn-pick").onclick = async () => {
     toast(String(err), true);
   }
 };
-$("footer-open-folder").onclick = () => $("btn-open-folder").click();
-$("btn-open-folder").onclick = () => invoke("open_addons_folder").catch((e) => toast(String(e), true));
-$("btn-open-log").onclick = () => invoke("open_log").catch((e) => toast(String(e), true));
 $("btn-save-key").onclick = async () => {
   try {
     await invoke("set_wago_key", { key: $("wago-key").value });
