@@ -804,7 +804,7 @@ async function loadSettings() {
     toast(String(err), true);
     return;
   }
-  $("version").textContent = "v" + settings.version + (settings.build ? " build " + settings.build : " (dev)");
+  $("version").textContent = isAndroid() ? settings.release || "(local build)" : "v" + settings.version + (settings.build ? " build " + settings.build : " (dev)");
   $("state-file").textContent = settings.state_file;
   $("install-path").value = settings.install_path || "";
   $("wago-link").dataset.url = settings.wago_key_url;
@@ -1021,7 +1021,7 @@ async function checkSelf(manual = false) {
     const l = selfUpdate.latest;
     if (isAndroid()) {
       // Android installs the APK itself: send the user to the release page.
-      $("selfupdate-text").innerHTML = `AddonForge <b>v${esc(l.version)}</b>${l.build ? ` build ${esc(l.build)}` : ""} is out.`;
+      $("selfupdate-text").innerHTML = `AddonForge <b>${esc(l.version)}</b> is out.`;
       $("selfupdate-go").textContent = "Get it";
       $("selfupdate-skip").textContent = "Not now";
     } else $("selfupdate-text").innerHTML = `A new version of AddonForge is available (<b>v${esc(l.version)}</b> build ${esc(l.build)}). Please update to the latest.`;

@@ -239,28 +239,33 @@ Target is ONLY the Thor's top screen in landscape (~833x469 CSS px, Android
   window background, no leanback/TV entry.
 - ForeverSVFix is never mentioned on Android. Self-update: Android checks
   `api.github.com/repos/grutamu/AddonForge-android/releases/latest` for an `.apk`
-  asset (tag `v<ver>-b<n>`; dev builds compare versions only) and the banner's
-  "Get it" opens the release page. No in-app installer, no Play button.
+  asset (tag `android-<date>`, see Releases; local builds never show it) and
+  the banner's "Get it" opens the release page. No in-app installer, no Play button.
 - Build/test on the device: `npx tauri android build --apk --target aarch64
   --config '{"bundle":{"android":{"versionCode":<installed code>}}}'` then
   `adb install -r …/app-universal-release.apk`. Without the --config a local
-  build is versionCode 3000 and Android refuses it over a CI release
-  (300001+) as a downgrade; never go ABOVE the next real release's code
-  either, or that release won't install over it. For poking the page live,
+  build is versionCode 3000 and Android refuses it over a CI release as a
+  downgrade; never go ABOVE the next real release's code either (today's
+  date ×100 + 1 is safe), or that release won't install over it. For poking the page live,
   add `WebView.setWebContentsDebuggingEnabled(true)` locally and use
   `adb forward tcp:9333 localabstract:webview_devtools_remote_<pid>`; NEVER
   commit it (studio security rule). `adb shell input gamepad keyevent
   KEYCODE_BUTTON_A` etc. drives the pad. Revoking file access needs
   `appops set --uid … MANAGE_EXTERNAL_STORAGE deny`.
-- Releases (2026-10-14): `scripts/release-android.sh "notes"` tags the next
-  `android-v<ver>-b<n>` (own counter; the fork also carries upstream's Windows
-  `v*-b*` tags, never reuse those) and `.github/workflows/android-release.yml`
-  builds, signs and publishes `AddonForge-android-v<ver>-b<n>.apk` (notes =
-  tag message). Signing key + passwords are Actions secrets ANDROID_KEYSTORE_*
-  / ANDROID_KEY_*; the original keystore is ~/.android/addonforge-release.jks
-  on the owner's Mac. BACK IT UP: losing it means every user reinstalls.
-  versionCode = major*10^7 + minor*10^5 + build (0.3.0 b1 = 300001);
-  ADDONFORGE_BUILD = build. Obtainium can track these releases. Upstream's
+- Releases are named by DATE, not x.y.z (owner, 2026-10-14: features land as
+  they make sense, there is no version roadmap). `scripts/release-android.sh
+  "notes"` tags `android-2026.10.14`, or `android-2026.10.14-2`, -3 … for more
+  that day; `.github/workflows/android-release.yml` builds, signs and
+  publishes `AddonForge-android-<name>.apk` (notes = tag message). The name has
+  no zero padding because it is also the Android versionName (semver) and is
+  baked in as `ADDONFORGE_RELEASE` (About shows it). versionCode =
+  YYYYMMDD*100 + n (2026101401), same formula as `selfupdate::release_code`,
+  also used as ADDONFORGE_BUILD. Early test releases android-v0.3.0-b1/b2 used
+  the old scheme and are ignored by the update check. Never reuse upstream's
+  Windows `v*-b*` tags that came with the fork. Signing key + passwords are
+  Actions secrets ANDROID_KEYSTORE_* / ANDROID_KEY_*; the original keystore is
+  ~/.android/addonforge-release.jks on the owner's Mac. BACK IT UP: losing it
+  means every user reinstalls. Obtainium can track these releases. Upstream's
   daily stats.yml is not enabled on the fork (default branch is `android`).
 - Icons: `scripts/make-android-icons.sh` renders adaptive icons (foreground =
   `src-tauri/icons/android/foreground.svg`, ember and anvil without the tile;
