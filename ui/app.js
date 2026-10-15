@@ -39,11 +39,6 @@ async function loadIcons(kind, ids) {
     document.querySelectorAll(`[data-ico="${CSS.escape(kind + ":" + id)}"]`).forEach((el) => { el.innerHTML = `<img src="${src}" alt="">`; });
   }
 }
-// ForeverSVFix patches addon folders; a fresh folder needs its Apply / Refresh again.
-// It is a Windows tool, so Android never mentions it.
-function svfixReminder(msg) {
-  return settings?.svfix && !isAndroid() ? `${msg}. ForeverSVFix: run Apply / Refresh before launching WoW` : msg;
-}
 function fmtCount(n) {
   if (n == null) return "";
   if (n >= 1e6) return (n / 1e6).toFixed(n >= 1e7 ? 0 : 1).replace(/\.0$/, "") + "M";
@@ -124,9 +119,6 @@ async function copyText(text) {
 document.addEventListener("click", (e) => {
   const navigation = e.target.closest("[data-navigate]");
   if (navigation) document.querySelector(`.tab[data-tab="${navigation.dataset.navigate}"]`)?.click();
-  document.querySelectorAll(".more-actions[open]").forEach((menu) => {
-    if (!menu.contains(e.target)) menu.open = false;
-  });
   const a = e.target.closest("[data-url]");
   if (a && a.dataset.url) {
     e.preventDefault();
@@ -201,7 +193,6 @@ function renderInstalled() {
             ? `<a href="#" data-url="${esc(p.source_url)}">${esc((p.source_label || (p.curse_id ? "CurseForge" : "link")).split(" · ")[0])}</a>`
             : `<span class="muted">${esc(p.source_label || "—")}</span>`;
           const canUpdate = p.source && p.status !== "no-key";
-          const btnLabel = p.status === "update" ? "Update" : p.managed ? "Reinstall" : "Install";
           const noteCls = p.status === "error" ? "note err" : "note";
           const notice = p.notice ? `<div class="note warn">${esc(p.notice)}</div>` : "";
           const deps = p.missing_deps.length
@@ -219,12 +210,6 @@ function renderInstalled() {
         <div class="c-status">${badge(p)}</div>
         <div class="c-act">
           ${canUpdate && p.status === "update" && !p.pinned ? `<button class="btn small primary" data-act="update">Update</button>` : ""}
-          <details class="more-actions"><summary aria-label="Options for ${esc(p.name)}" title="Addon options">···</summary><div class="action-menu">
-          ${canUpdate ? `<button class="btn small" data-act="update">${btnLabel}</button>` : ""}
-          <button class="btn small" data-act="pin" title="${p.pinned ? "Allow updates again" : "Hold this addon at its current version"}">${p.pinned ? "Allow updates" : "Pin version"}</button>
-          <button class="btn small" data-act="ignore" title="${p.ignored ? "Show it again" : "Hide it from the list and stop checking it, e.g. your own addons or ones with no update source"}">${p.ignored ? "Unignore" : "Ignore"}</button>
-          <button class="btn small" data-act="remove" title="Delete these folders from AddOns (saved settings in WTF are kept)">Remove</button>
-          </div></details>
         </div>
         ${p.note ? `<div class="${noteCls}">${esc(p.note)}</div>` : ""}
         ${notice}
@@ -251,28 +236,6 @@ $("installed-view").addEventListener("change", (e) => {
   activeFilter = e.target.value;
   renderInstalled();
 });
-document.addEventListener("keydown", (e) => {
-  if (e.key === "Escape") document.querySelectorAll(".more-actions[open]").forEach((menu) => {
-    menu.open = false;
-    menu.querySelector("summary").focus();
-  });
-});
-// Keep the options menu inside the window, including the last visible row.
-$("installed-list").addEventListener("toggle", (e) => {
-  const details = e.target;
-  if (!details.matches(".more-actions") || !details.open) return;
-  document.querySelectorAll(".more-actions[open]").forEach((other) => {
-    if (other !== details) other.open = false;
-  });
-  const menu = details.querySelector(".action-menu");
-  const rect = details.getBoundingClientRect();
-  const height = menu.offsetHeight;
-  menu.style.right = `${Math.max(12, window.innerWidth - rect.right)}px`;
-  menu.style.top = `${Math.max(12, rect.bottom + height + 48 > window.innerHeight ? rect.top - height - 6 : rect.bottom + 6)}px`;
-}, true);
-document.querySelector("main").addEventListener("scroll", () => {
-  document.querySelectorAll(".more-actions[open]").forEach((menu) => { menu.open = false; });
-});
 
 $("installed-list").addEventListener("click", async (e) => {
   if (e.target.closest("[data-reset-filters]")) {
@@ -285,7 +248,7 @@ $("installed-list").addEventListener("click", async (e) => {
   }
   const detailButton = e.target.closest("[data-package-detail]");
   const row = e.target.closest(".item[data-key]");
-  if (detailButton || (row && !e.target.closest("button,a,summary,details"))) {
+  if (detailButton || (row && !e.target.closest("button,a"))) {
     const p = packages.find((p) => p.key === row.dataset.key);
     if (p) await openDetail(p.catalog_id, p);
     return;
@@ -294,12 +257,10 @@ $("installed-list").addEventListener("click", async (e) => {
   if (!btn || busy) return;
   const p = packages.find((x) => x.key === btn.closest(".item").dataset.key);
   if (!p) return;
-  const menu = btn.closest("details");
-  if (menu) menu.open = false;
   await packageAction(btn.dataset.act, p, btn);
 });
 
-// One addon's actions, from its row menu or (Android) the details pane.
+// One addon's actions, from its row or the details pane.
 async function packageAction(act, p, btn) {
   const key = p.key;
   if (act === "update") await updateOne(p);
@@ -347,7 +308,7 @@ async function updateOne(p, allowNonForever = false) {
     const fresh = await invoke("update_package", { key: p.key, allowNonForever });
     const i = packages.findIndex((x) => x.key === p.key);
     if (i >= 0) packages[i] = fresh;
-    toast(svfixReminder(`${fresh.name} is now ${fresh.installed_version || "installed"}`));
+    toast(`${fresh.name} is now ${fresh.installed_version || "installed"}`);
   } catch (err) {
     if (String(err) === "NOT_FOREVER") {
       p.status = "update";
@@ -488,7 +449,7 @@ let detailId = null;
 let detailSeq = 0;
 let detailEntry = null;
 let detailFocus = null;
-let detailPackageKey = null; // installed addon shown in the details (Android: the pane)
+let detailPackageKey = null; // installed addon shown in the details pane
 function sourceLabel(e) {
   return e.github ? `GitHub \u00b7 ${e.github}` : e.wago ? "Wago" : e.wowi ? "WoWInterface" : e.tukui ? "TukUI" : "CurseForge";
 }
@@ -526,12 +487,11 @@ async function openDetail(id, installedPackage = null) {
   const needsKey = e.wago && !e.github && !e.wowi && !e.tukui && !settings?.has_wago_key;
   $("detail-install").textContent = e.installed ? "Reinstall" : "Install";
   $("detail-install").classList.toggle("hidden", !canInstall);
-  $("detail-note").textContent = needsKey ? "Needs a Wago key (Settings)." : canInstall ? "" : installedPackage && !isAndroid() ? "Manage this addon from its row menu." : installedPackage ? "" : "Not installable from here: get it from its page.";
+  $("detail-note").textContent = needsKey ? "Needs a Wago key (Settings)." : canInstall || installedPackage ? "" : "Not installable from here: get it from its page.";
   $("detail-open").classList.toggle("hidden", !entryUrl(e));
   renderPackageActions();
   $("detail").classList.remove("hidden");
-  // Android shows details in a side pane: focus stays on the list for the D-pad.
-  if (!isAndroid()) $("detail-close").focus();
+  // The details show in the side pane: focus stays on the list for the D-pad.
   if (!e.github) return;
   let d = null;
   try {
@@ -556,12 +516,12 @@ function closeDetail() {
 function markSelected() {
   document.querySelectorAll("#installed-list .item").forEach((row) => row.classList.toggle("selected", row.dataset.key === detailPackageKey));
 }
-// Android: the installed addon's versions, notes and options, as plain buttons
-// with their explanations (the desktop keeps them in the row menu and tooltips).
+// The installed addon's versions, notes and options, as plain buttons with
+// their explanations.
 function renderPackageActions() {
   const box = $("detail-actions");
   const p = detailPackageKey && packages.find((x) => x.key === detailPackageKey);
-  if (!isAndroid() || !p) {
+  if (!p) {
     box.innerHTML = "";
     return;
   }
@@ -739,7 +699,7 @@ async function installCatalog(entry, allowNonForever) {
   btnState(entry.id, true);
   try {
     const p = await invoke("install_catalog", { id: entry.id, allowNonForever });
-    toast(svfixReminder(`Installed ${p.name} ${p.installed_version || ""}`));
+    toast(`Installed ${p.name} ${p.installed_version || ""}`);
     entry.installed = true;
     for (const b of bundles) for (const a of b.addons) if (a.id === entry.id) a.installed = true;
     renderBundles();
@@ -773,7 +733,7 @@ async function installGithub(allowNonForever = false) {
   btn.innerHTML = '<span class="spinner"></span> Installing';
   try {
     const p = await invoke("install_github", { repo, allowNonForever });
-    toast(svfixReminder(`Installed ${p.name} ${p.installed_version || ""}`));
+    toast(`Installed ${p.name} ${p.installed_version || ""}`);
     $("gh-repo").value = "";
     await rescan(true);
     loadCatalog(false);
@@ -804,7 +764,7 @@ async function loadSettings() {
     toast(String(err), true);
     return;
   }
-  $("version").textContent = isAndroid() ? settings.release || "(local build)" : "v" + settings.version + (settings.build ? " build " + settings.build : " (dev)");
+  $("version").textContent = settings.release || "(local build)";
   $("state-file").textContent = settings.state_file;
   $("install-path").value = settings.install_path || "";
   $("wago-link").dataset.url = settings.wago_key_url;
@@ -817,26 +777,21 @@ async function loadSettings() {
     ? "Game folder connected"
     : "No game folder selected — choose one in Settings";
   $("install-line").classList.toggle("connected", !!settings.install);
-  $("svfix-note").classList.toggle("hidden", !settings.svfix || isAndroid());
-  if (isAndroid()) {
-    // No file explorer or exe self-update on Android; touch.js points the
-    // folder button and export / import at Android's own pickers and share sheet.
-    document.body.classList.add("android");
-    $("btn-selfcheck").classList.add("hidden");
-    $("install-path").placeholder = "/storage/emulated/0/Download/World of Warcraft/_classic_beta_";
-    $("btn-pick").textContent = "Choose folder…";
-    $("btn-export").textContent = "Share my list…";
-    $("btn-import").textContent = "Import a list…";
-  }
+  // touch.js points the folder button and export / import at Android's own
+  // pickers and share sheet.
+  document.body.classList.add("android");
+  $("install-path").placeholder = "/storage/emulated/0/Download/World of Warcraft/_classic_beta_";
+  $("btn-pick").textContent = "Choose folder…";
+  $("btn-export").textContent = "Share my list…";
+  $("btn-import").textContent = "Import a list…";
 }
 
-const isAndroid = () => settings?.platform === "android";
 async function detect() {
-  $("detected").innerHTML = `<span class="muted"><span class="spinner"></span> Scanning drives…</span>`;
+  $("detected").innerHTML = `<span class="muted"><span class="spinner"></span> Looking for your game folder…</span>`;
   try {
     const found = await invoke("find_installs");
     if (!found.length) {
-      $("detected").innerHTML = `<span class="muted">Nothing found in the usual places. ${isAndroid() ? "Choose folder…" : "Use Browse…"} to pick the <code>_classic_beta_</code> folder yourself.</span>`;
+      $("detected").innerHTML = `<span class="muted">Nothing found in the usual places. Use Choose folder… to pick the <code>_classic_beta_</code> folder yourself.</span>`;
       return;
     }
     $("detected").innerHTML = found
@@ -870,17 +825,6 @@ async function savePath() {
 
 $("btn-detect").onclick = detect;
 $("btn-save-path").onclick = savePath;
-$("btn-pick").onclick = async () => {
-  try {
-    const dir = await T.dialog.open({ directory: true, multiple: false, title: "Pick the WoW product folder (e.g. _classic_beta_)" });
-    if (dir) {
-      $("install-path").value = dir;
-      await savePath();
-    }
-  } catch (err) {
-    toast(String(err), true);
-  }
-};
 $("btn-save-key").onclick = async () => {
   try {
     await invoke("set_wago_key", { key: $("wago-key").value });
@@ -908,27 +852,7 @@ $("pref-prerelease").addEventListener("change", async (e) => {
 });
 
 // ---------------------------------------------------------------- export / import
-$("btn-export").onclick = async () => {
-  try {
-    const path = await T.dialog.save({ title: "Export addon list", defaultPath: "addonforge-list.json", filters: [{ name: "AddonForge list", extensions: ["json"] }] });
-    if (!path) return;
-    const n = await invoke("export_list", { path });
-    toast(`Exported ${n} addon${n === 1 ? "" : "s"}`);
-  } catch (err) {
-    toast(String(err), true);
-  }
-};
-
-$("btn-import").onclick = async () => {
-  try {
-    const path = await T.dialog.open({ title: "Import addon list", multiple: false, filters: [{ name: "AddonForge list", extensions: ["json"] }] });
-    if (!path) return;
-    const plan = await invoke("import_list", { path });
-    renderImportPlan(plan);
-  } catch (err) {
-    toast(String(err), true);
-  }
-};
+// touch.js wires Export and Import to the share sheet and the file picker.
 
 function renderImportPlan(plan) {
   const box = $("import-plan");
@@ -1022,7 +946,6 @@ async function checkSelf(manual = false) {
     if (manual) toast(selfUpdate.error ? `Couldn't check: ${selfUpdate.error}` : "AddonForge is up to date");
   }
 }
-$("btn-selfcheck").onclick = () => checkSelf(true);
 $("selfupdate-skip").onclick = async () => {
   await invoke("skip_self_update", { tag: selfUpdate.tag }).catch(() => {});
   $("selfupdate").classList.add("hidden");
@@ -1052,16 +975,16 @@ $("selfupdate-go").onclick = () => selfUpdate?.latest?.url && openUrl(selfUpdate
     .then((w) => {
       if (!w) return;
       $("modal-no").classList.add("hidden");
-      confirmModal(`<p><b>AddonForge ${isAndroid() ? esc(w.version) : `v${esc(w.version)} build ${esc(w.build)}`}</b> is installed. What changed:</p><div class="whatsnew">${esc(w.notes)}</div>`, "OK")
+      confirmModal(`<p><b>AddonForge ${esc(w.version)}</b> is installed. What changed:</p><div class="whatsnew">${esc(w.notes)}</div>`, "OK")
         .finally(() => $("modal-no").classList.remove("hidden"));
     })
     .catch(() => {});
 })();
 
-// Android: the first launch opens the "All files access" screen over the app.
-// Coming back with no game folder yet, look again now that storage is readable.
+// The first launch opens the "All files access" screen over the app. Coming
+// back with no game folder yet, look again now that storage is readable.
 document.addEventListener("visibilitychange", async () => {
-  if (document.visibilityState !== "visible" || !isAndroid() || settings?.install_path) return;
+  if (document.visibilityState !== "visible" || settings?.install_path) return;
   await detect();
   await loadSettings();
   if (settings?.install_path) { await rescan(); checkUpdates(); }

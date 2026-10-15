@@ -1,10 +1,9 @@
-// AddonForge on Android (AYN Thor, landscape): the touch layout and gamepad
-// navigation. Loaded after app.js and uses its globals; does nothing on the
-// desktop. MainActivity forwards every pad button and Back as afPad("NAME").
+// AddonForge on the AYN Thor (landscape): the touch layout and gamepad
+// navigation. Loaded after app.js and uses its globals. MainActivity forwards
+// every pad button and Back as afPad("NAME"); without it (the Mac preview) the
+// keyboard arrows move the focus.
 (() => {
   const A = window.AddonForgeAndroid;
-  // Dev preview in a desktop browser: localStorage.setItem("af-touch", "1").
-  if (!A && localStorage.getItem("af-touch") !== "1") return;
   const body = document.body;
   body.classList.add("android");
   body.dataset.tab = "installed";

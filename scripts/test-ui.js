@@ -74,17 +74,6 @@ run(`catalog = []; featuredRaw = [];`);
 run(`packages = []; renderInstalled()`);
 assert.equal(String(element('stat-updates').textContent), '0');
 assert.match(element('installed-list').innerHTML, /Discover addons/);
-const menu = { style: {}, offsetHeight: 110 };
-const details = {
-  open: true, matches: () => true, querySelector: () => menu,
-  getBoundingClientRect: () => ({ top: 580, bottom: 612, right: 920 }),
-};
-context.window.innerWidth = 980;
-context.window.innerHeight = 660;
-element('installed-list').listeners.toggle({ target: details });
-assert.ok(parseFloat(menu.style.top) >= 0);
-assert.ok(parseFloat(menu.style.top) + menu.offsetHeight < 580, 'Bottom-row options open above the trigger');
-assert.ok(parseFloat(menu.style.right) >= 12, 'Options stay inside the right edge');
 (async () => {
   const originalFocus = document.activeElement;
   const promise = run(`confirmModal('Confirm?', 'Remove')`);
@@ -106,6 +95,16 @@ assert.ok(parseFloat(menu.style.right) >= 12, 'Options stay inside the right edg
   assert.match(element('detail-body').innerHTML, /Local&lt;folder&gt;/);
   assert.equal(run('entryUrl(detailEntry)'), 'https://example.test/addon');
   run('closeDetail()');
+  // An installed addon's actions live in the details pane (there is no row menu).
+  run(`packages = [{key:'up',name:'Up',folders:['Up'],source:true,source_label:'GitHub',status:'update',supports_forever:true,missing_deps:[],installed_version:'1 <old>',remote_version:'2'}]`);
+  await run('openDetail(null, packages[0])');
+  const actions = element('detail-actions').innerHTML;
+  for (const label of ['Update', 'Pin version', 'Ignore', 'Remove']) assert.match(actions, new RegExp(`>${label}<`), label);
+  assert.match(actions, /Hold at 1 &lt;old&gt;/);
+  run('packages[0].pinned = true; renderPackageActions()');
+  assert.match(element('detail-actions').innerHTML, />Allow updates</);
+  assert.match(element('detail-actions').innerHTML, /Pinned, so Update all skips it/);
+  run('closeDetail(); packages = []');
   let finish;
   detailReply = new Promise(resolve => { finish = resolve; });
   const loading = run("openDetail('boss')");
@@ -114,5 +113,5 @@ assert.ok(parseFloat(menu.style.right) >= 12, 'Options stay inside the right edg
   finish({summary:'Late response'});
   await loading;
   assert.equal(element('detail-body').innerHTML, before, 'Closed dialogs ignore late responses');
-  console.log('UI checks passed: counts, eligible updates, filters, search, escaping, empty states, modal focus and cancellation.');
+  console.log('UI checks passed: counts, eligible updates, filters, search, escaping, empty states, modal focus and cancellation, addon actions in the details pane.');
 })().catch((error) => { console.error(error); process.exitCode = 1; });
