@@ -241,8 +241,12 @@ Target is ONLY the Thor's top screen in landscape (~833x469 CSS px, Android
   `api.github.com/repos/grutamu/AddonForge-android/releases/latest` for an `.apk`
   asset (tag `v<ver>-b<n>`; dev builds compare versions only) and the banner's
   "Get it" opens the release page. No in-app installer, no Play button.
-- Build/test on the device: `npx tauri android build --apk --target aarch64`
-  then `adb install -r …/app-universal-release.apk`. For poking the page live,
+- Build/test on the device: `npx tauri android build --apk --target aarch64
+  --config '{"bundle":{"android":{"versionCode":<installed code>}}}'` then
+  `adb install -r …/app-universal-release.apk`. Without the --config a local
+  build is versionCode 3000 and Android refuses it over a CI release
+  (300001+) as a downgrade; never go ABOVE the next real release's code
+  either, or that release won't install over it. For poking the page live,
   add `WebView.setWebContentsDebuggingEnabled(true)` locally and use
   `adb forward tcp:9333 localabstract:webview_devtools_remote_<pid>`; NEVER
   commit it (studio security rule). `adb shell input gamepad keyevent
