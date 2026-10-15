@@ -58,6 +58,11 @@ pub struct Package {
     pub name: String,
     pub folders: Vec<String>,
     pub installed_version: Option<String>,
+    /// Unmanaged packages: every folder's own TOC version. A bundle release
+    /// (Questie's "v12.1.0+v1.0.6" = Questie 12.1.0 + QuestieDB 1.0.6) is
+    /// up to date when it names each of them.
+    #[serde(skip)]
+    pub folder_versions: Vec<String>,
     pub author: Option<String>,
     pub notes: Option<String>,
     pub source: Option<Source>,
@@ -310,10 +315,18 @@ fn build_packages(st: &AppState, cat: &Catalog, folders: &[AddonFolder]) -> Vec<
         let name = entry
             .map(|e| e.name.clone())
             .unwrap_or_else(|| primary.title.clone());
+        let usable = |v: &Option<String>| v.clone().filter(|v| !v.is_empty() && !v.starts_with('@'));
+        // The version of the folder named after the addon (Questie, not the
+        // QuestieDB it depends on), else the main folder's, else any.
+        let main_folder = entry.and_then(|e| fs.iter().copied().find(|f| named_after(e, &f.folder))).unwrap_or(primary);
         let installed_version = managed
             .map(|m| m.version.clone())
-            .or_else(|| fs.iter().find_map(|f| f.version.clone()))
+            .or_else(|| usable(&main_folder.version))
+            .or_else(|| fs.iter().find_map(|f| usable(&f.version)))
             .filter(|v| !v.is_empty() && !v.starts_with('@'));
+        let mut folder_versions: Vec<String> = if managed.is_some() { Vec::new() } else { fs.iter().filter_map(|f| usable(&f.version)).collect() };
+        folder_versions.sort();
+        folder_versions.dedup();
         let source = pick_source(entry, primary, has_wago, curse, managed)
             .or_else(|| fs.iter().find_map(|f| pick_source(None, f, has_wago, curse, None)));
         let curse_id = entry.and_then(|e| e.curse).or_else(|| fs.iter().find_map(|f| f.curse));
@@ -360,6 +373,7 @@ fn build_packages(st: &AppState, cat: &Catalog, folders: &[AddonFolder]) -> Vec<
             name,
             folders: folder_names,
             installed_version,
+            folder_versions,
             author: primary.author.clone(),
             notes: entry.map(|e| e.desc.clone()).filter(|d| !d.is_empty()).or_else(|| primary.notes.clone()),
             source_label: source.as_ref().map(|s| s.label()).unwrap_or_default(),
@@ -463,7 +477,8 @@ async fn resolve_into(app: &App, pkg: &mut Package, cat: &Catalog) {
                 .installed_version
                 .as_deref()
                 .map(|v| normalize_version(v) == normalize_version(&r.version))
-                .unwrap_or(false);
+                .unwrap_or(false)
+                || sources::names_every_version(&r.version, &pkg.folder_versions);
             pkg.update_available = !same;
             pkg.status = if same { "ok".into() } else { "update".into() };
             pkg.note = match r.forever {
@@ -1409,5 +1424,18 @@ mod tests {
         assert_eq!(key("WeakAuras"), "curse:65387", "its own CurseForge id says it isn't the repack");
         let needs = pkgs.iter().find(|p| p.name == "Needs").unwrap();
         assert_eq!(needs.missing_deps[0].catalog_id.as_deref(), Some("sack"));
+    }
+
+    #[test]
+    fn bundle_addon_shows_its_own_version_and_matches_the_bundle_release() {
+        let cat: Catalog = serde_json::from_str(r#"{"addons":[{"id":"q","name":"Questie","curse":334372,"folders":["Questie","QuestieDB"]}]}"#).unwrap();
+        let mut q = folder("Questie", &["QuestieDB"], None);
+        q.version = Some("12.1.0".into());
+        let mut db = folder("QuestieDB", &[], None);
+        db.version = Some("1.0.6".into());
+        let pkgs = build_packages(&AppState::default(), &cat, &[q, db]);
+        assert_eq!(pkgs.len(), 1);
+        assert_eq!(pkgs[0].installed_version.as_deref(), Some("12.1.0"), "Questie's version, not its database's");
+        assert!(sources::names_every_version("Questie-v12.1.0+v1.0.6", &pkgs[0].folder_versions));
     }
 }

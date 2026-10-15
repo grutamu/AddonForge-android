@@ -111,6 +111,23 @@ pub fn normalize_version(v: &str) -> String {
     v.trim().trim_start_matches(['v', 'V', '#']).trim().to_ascii_lowercase()
 }
 
+/// Does the release name contain each of these versions as a whole version
+/// (`12.1.0` in `Questie-v12.1.0+v1.0.6`, but `1.2` not in `1.2.3`)?
+pub fn names_every_version(remote: &str, versions: &[String]) -> bool {
+    let remote = remote.to_ascii_lowercase();
+    let whole = |v: &str| {
+        let v = normalize_version(v);
+        !v.is_empty()
+            && remote.match_indices(v.as_str()).any(|(i, _)| {
+                let before = remote[..i].chars().last();
+                let after = remote[i + v.len()..].chars().next();
+                let edge = |c: Option<char>| c.map(|c| !c.is_ascii_alphanumeric() && c != '.').unwrap_or(true);
+                (edge(before) || (before == Some('v') && edge(remote[..i - 1].chars().last()))) && edge(after)
+            })
+    };
+    !versions.is_empty() && versions.iter().all(|v| whole(v))
+}
+
 /// Turn "https://github.com/owner/repo/..." or "owner/repo" into "owner/repo".
 pub fn parse_github_repo(input: &str) -> Option<String> {
     let s = input.trim().trim_end_matches('/');
@@ -143,5 +160,16 @@ mod tests {
         assert_eq!(parse_github_repo("github.com/a/b.git").as_deref(), Some("a/b"));
         assert_eq!(parse_github_repo("nope"), None);
         assert_eq!(parse_github_repo("https://gitlab.com/a/b"), None);
+    }
+
+    #[test]
+    fn bundle_release_names_every_folder_version() {
+        let v = |s: &[&str]| s.iter().map(|x| x.to_string()).collect::<Vec<_>>();
+        assert!(names_every_version("Questie-v12.1.0+v1.0.6", &v(&["12.1.0", "1.0.6"])));
+        assert!(!names_every_version("Questie-v12.1.0+v1.0.6", &v(&["12.0.4", "1.0.6"])), "old Questie, same database");
+        assert!(!names_every_version("1.2.3", &v(&["1.2"])));
+        assert!(!names_every_version("v11.2.3", &v(&["1.2.3"])));
+        assert!(names_every_version("Leatrix_Plus-1.60.20-forever", &v(&["1.60.20"])));
+        assert!(!names_every_version("anything", &[]));
     }
 }
