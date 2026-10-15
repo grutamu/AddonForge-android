@@ -25,8 +25,8 @@ pub const USER_AGENT: &str = concat!(
     env!("CARGO_PKG_VERSION"),
     " (+https://github.com/Topher121/AddonForge)"
 );
-pub const REPO_URL: &str = "https://github.com/Topher121/AddonForge";
-pub const SUPPORT_EMAIL: &str = "PocketForgeStudios@proton.me";
+/// Where "Report on GitHub" files issues: this fork, not upstream.
+pub const REPO_URL: &str = "https://github.com/grutamu/AddonForge-android";
 
 struct App {
     client: reqwest::Client,
@@ -478,7 +478,6 @@ struct Settings {
     catalog_count: usize,
     wago_key_url: String,
     repo_url: String,
-    support_email: String,
     /// `ADDONFORGE_TAB=browse|settings` opens on that tab (screenshots, testing).
     start_tab: Option<String>,
     /// Android release name (`2026.10.14`); None for local builds.
@@ -505,7 +504,6 @@ async fn get_settings(app: State<'_, Shared>) -> Result<Settings, String> {
         catalog_count: cat.as_ref().map(|c| c.0.addons.len()).unwrap_or(0),
         wago_key_url: sources::wago::KEY_URL.into(),
         repo_url: REPO_URL.into(),
-        support_email: SUPPORT_EMAIL.into(),
         start_tab: std::env::var("ADDONFORGE_TAB").ok().filter(|t| !t.is_empty()),
         release: selfupdate::release().map(Into::into),
     })
