@@ -1,9 +1,7 @@
-# The catalogue and featuring are run by the original AddonForge project;
-# this fork only files Android problems.
+# The catalogue is instawow's public list (CurseForge entries tagged Forever),
+# so an addon shows up once its author publishes a Forever build on
+# CurseForge. This fork only files Android problems.
 contact_links:
-  - name: Add an addon to the catalogue
-    url: https://github.com/Topher121/AddonForge/issues/new?template=addon.yml
-    about: The catalogue is maintained by the original AddonForge. Ask there.
-  - name: Feature my addon
-    url: https://github.com/Topher121/AddonForge/issues/new?template=feature.yml
-    about: Featuring is run by the original AddonForge, free. Authors ask there.
+  - name: An addon is missing from Find addons
+    url: https://github.com/grutamu/AddonForge-android#where-addons-come-from
+    about: The catalogue lists what CurseForge tags for Forever. Any GitHub repo can also be installed from a link in the app.

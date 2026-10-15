@@ -15,9 +15,9 @@ let busy = false;
 let settings = null;
 let selfUpdate = null;
 let activeFilter = "all";
-let sortMode = "name";
-let bundles = [];
-let featuredRaw = []; // catalogue "featured" list; what applies today is worked out in renderFeatured
+let sortMode = "downloads";
+// Thousands of catalogue entries: draw the first few hundred, search finds the rest.
+const BROWSE_MAX = 200;
 const icons = new Map(); // "p:<package key>" / "c:<catalogue id>" -> data URL, or null when there is none
 const needsAttention = (p) => p.status === "error" || p.status === "no-key" || p.status === "no-source" || p.missing_deps.length > 0 || !p.supports_forever;
 
@@ -27,13 +27,14 @@ function iconTile(kind, id, name) {
   const letter = esc(String(name || "?").replace(/^[^a-z0-9]+/i, "").charAt(0).toUpperCase() || "?");
   return `<span class="ico" data-ico="${esc(kind + ":" + id)}" aria-hidden="true">${src ? `<img src="${src}" alt="">` : letter}</span>`;
 }
-// Fetch icons for rows that don't have one yet and drop them into the DOM in place (no re-render).
+// Fetch icons for installed rows that don't have one yet and drop them into the DOM in place (no re-render).
+// Only installed addons have icons (their own icon file); catalogue rows keep their letter tile.
 async function loadIcons(kind, ids) {
   const want = ids.filter((id) => !icons.has(kind + ":" + id));
   if (!want.length) return;
   let got;
   try {
-    got = await invoke(kind === "p" ? "package_icons" : "catalog_icons", kind === "p" ? { keys: want } : { ids: want });
+    got = await invoke("package_icons", { keys: want });
   } catch (_) {
     return;
   }
@@ -147,7 +148,7 @@ document.querySelectorAll(".tab").forEach((btn) =>
     });
     document.querySelectorAll(".panel").forEach((p) => p.classList.toggle("active", p.id === "tab-" + btn.dataset.tab));
     document.querySelector("main").scrollTop = 0;
-    if ((btn.dataset.tab === "browse" || btn.dataset.tab === "start") && !catalog.length) loadCatalog(false);
+    if (btn.dataset.tab === "browse" && !catalog.length) loadCatalog(false);
     if (btn.dataset.tab === "settings") loadSettings();
   })
 );
@@ -189,7 +190,7 @@ function renderInstalled() {
   const eligible = packages.filter((p) => p.status === "update" && !p.pinned && !p.ignored).length;
   $("btn-update-all").textContent = eligible ? `Update all (${eligible})` : "Update all";
   if (!packages.length) {
-    list.innerHTML = `<div class="empty"><strong>No addons found</strong>Nothing in this installation's AddOns folder yet.<br><button class="btn" data-navigate="start">Discover addons</button></div>`;
+    list.innerHTML = `<div class="empty"><strong>No addons found</strong>Nothing in this installation's AddOns folder yet.<br><button class="btn" data-navigate="browse">Discover addons</button></div>`;
     $("summary").textContent = "";
     setBusy(busy);
     return;
@@ -396,7 +397,6 @@ async function rescan(keepStatus = false) {
     packages = fresh;
     renderInstalled();
     loadIcons("p", packages.map((p) => p.key));
-    if (!packages.length) $("guide").open = true; // nothing installed yet: probably new to this
   } catch (err) {
     packages = [];
     renderInstalled();
@@ -458,25 +458,26 @@ function sortedCatalog(rows) {
 
 function renderCatalog() {
   const q = $("browse-filter").value.trim().toLowerCase();
-  const rows = sortedCatalog(catalog.filter((e) => !q || `${e.name} ${e.desc} ${e.category} ${e.github || ""}`.toLowerCase().includes(q)));
+  const all = sortedCatalog(catalog.filter((e) => !q || `${e.name} ${e.desc} ${e.category} ${e.github || ""}`.toLowerCase().includes(q)));
+  const rows = all.slice(0, BROWSE_MAX);
   $("browse-list").innerHTML = rows.length
     ? rows
         .map((e) => {
-          const src = e.github ? `GitHub · ${e.github}` : e.wago ? "Wago" : e.wowi ? "WoWInterface" : e.tukui ? "TukUI" : "CurseForge only";
+          const src = e.github ? `GitHub · ${e.github}` : e.wago ? "Wago" : e.wowi ? "WoWInterface" : e.tukui ? "TukUI" : settings?.curse_unofficial ? "CurseForge (unofficial)" : "CurseForge only";
           const fv = e.forever === true ? `<span class="badge forever">Forever</span>` : e.forever === false ? `<span class="badge not-forever">No Forever build</span>` : "";
-          const canInstall = e.github || e.wowi || e.tukui || (e.wago && settings?.has_wago_key);
-          const needsKey = e.wago && !e.github && !e.wowi && !e.tukui && !settings?.has_wago_key;
+          const canInstall = catalogInstallable(e);
+          const needsKey = e.wago && !canInstall;
           return `<div class="item" data-id="${esc(e.id)}">
             <div class="c-name clickable" data-detail="${esc(e.id)}" title="Details">${iconTile("c", e.id, e.name)}<div class="nm-wrap"><span class="nm">${esc(e.name)}</span><span class="flags">${fv}${e.installed ? ' <span class="badge ok">installed</span>' : ""}</span><div class="sub-line" title="${esc(e.desc || "")}">${esc(e.desc || "")}</div></div></div>
             <div class="c-cat muted">${esc(e.category || "")}</div>
-            <div class="c-dl" title="${e.downloads != null ? esc(e.downloads.toLocaleString() + " downloads, all time, counted on " + (e.stat_source === "wowi" ? "WoWInterface" : "GitHub")) : "No download count for this source"}">${e.downloads != null ? `<b>${fmtCount(e.downloads)}</b>` : `<span class="muted">\u2014</span>`}${e.updated_at ? `<div class="sub-line">${ago(e.updated_at)}</div>` : ""}</div>
+            <div class="c-dl" title="${e.downloads != null ? esc(e.downloads.toLocaleString() + " downloads, all time, counted on " + ({ wowi: "WoWInterface", curse: "CurseForge" }[e.stat_source] || "GitHub")) : "No download count for this source"}">${e.downloads != null ? `<b>${fmtCount(e.downloads)}</b>` : `<span class="muted">\u2014</span>`}${e.updated_at ? `<div class="sub-line">${ago(e.updated_at)}</div>` : ""}</div>
             <div class="c-src"><a href="#" data-url="${esc(e.url || (e.github ? "https://github.com/" + e.github : "#"))}">${esc(src)}</a></div>
             <div class="c-act">
               ${canInstall ? `<button class="btn small" data-act="install">${e.installed ? "Reinstall" : "Install"}</button>` : needsKey ? `<span class="badge no-key">needs Wago key</span>` : `<span class="badge curse-only">link only</span>`}
             </div>
           </div>`;
         })
-        .join("")
+        .join("") + (all.length > rows.length ? `<div class="empty">Showing ${rows.length} of ${all.length}. Search to find the rest.</div>` : "")
     : `<div class="empty">Nothing matches.</div>`;
   setBusy(busy);
 }
@@ -486,9 +487,6 @@ async function loadCatalog(refresh) {
   try {
     catalog = await invoke("catalog_list", { refresh });
     renderCatalog();
-    loadIcons("c", catalog.map((e) => e.id));
-    loadBundles();
-    loadFeatured();
   } catch (err) {
     toast(String(err), true);
   } finally {
@@ -508,6 +506,10 @@ let detailSeq = 0;
 let detailEntry = null;
 let detailFocus = null;
 let detailPackageKey = null; // installed addon shown in the details pane
+// Mirrors pick_source in lib.rs: CurseForge only with the unofficial switch on.
+function catalogInstallable(e) {
+  return e.github || e.wowi || e.tukui || (e.wago && settings?.has_wago_key) || (e.curse && settings?.curse_unofficial);
+}
 function sourceLabel(e) {
   return e.github ? `GitHub \u00b7 ${e.github}` : e.wago ? "Wago" : e.wowi ? "WoWInterface" : e.tukui ? "TukUI" : "CurseForge";
 }
@@ -540,26 +542,27 @@ async function openDetail(id, installedPackage = null) {
     (e.installed ? ' \u00b7 <span class="badge ok">installed</span>' : "");
   $("detail-desc").textContent = e.desc || "";
   const localInfo = installedPackage ? `<div class="muted">Folders: ${installedPackage.folders.map(esc).join(", ")}</div>` : "";
-  $("detail-body").innerHTML = localInfo + (e.github ? '<div class="muted"><span class="spinner"></span> Reading its README\u2026</div>' : "");
-  const canInstall = e.github || e.wowi || e.tukui || (e.wago && settings?.has_wago_key);
-  const needsKey = e.wago && !e.github && !e.wowi && !e.tukui && !settings?.has_wago_key;
+  const more = e.github ? "Reading its README" : e.curse ? "Reading its CurseForge page" : "";
+  $("detail-body").innerHTML = localInfo + (more ? `<div class="muted"><span class="spinner"></span> ${more}\u2026</div>` : "");
+  const canInstall = catalogInstallable(e);
+  const needsKey = e.wago && !canInstall;
   $("detail-install").textContent = e.installed ? "Reinstall" : "Install";
   $("detail-install").classList.toggle("hidden", !canInstall);
-  $("detail-note").textContent = needsKey ? "Needs a Wago key (Settings)." : canInstall || installedPackage ? "" : "Not installable from here: get it from its page.";
+  $("detail-note").textContent = needsKey ? "Needs a Wago key (Settings)." : canInstall || installedPackage ? "" : e.curse ? "CurseForge only: get it from its page, or turn on the unofficial CurseForge switch in Settings." : "Not installable from here: get it from its page.";
   $("detail-open").classList.toggle("hidden", !entryUrl(e));
   renderPackageActions();
   $("detail").classList.remove("hidden");
   // The details show in the side pane: focus stays on the list for the D-pad.
-  if (!e.github) return;
+  if (!more) return;
   let d = null;
   try {
     d = await invoke("addon_details", { id });
   } catch (_) {}
   if (seq !== detailSeq || !detailId) return;
   const parts = [localInfo];
-  if (d?.image) parts.push(`<img class="shot" src="${d.image}" alt="Screenshot from the addon's README">`);
+  if (d?.image) parts.push(`<img class="shot" src="${d.image}" alt="${e.github ? "Screenshot from the addon's README" : "The addon's CurseForge picture"}">`);
   if (d?.summary) parts.push(`<div class="readme">${esc(d.summary)}</div>`);
-  if (!d?.image && !d?.summary) parts.push('<div class="muted">No README to show. Its page has the details.</div>');
+  if (!d?.image && !d?.summary) parts.push(`<div class="muted">${e.github ? "No README to show." : "Nothing to show."} Its page has the details.</div>`);
   $("detail-body").innerHTML = parts.join("");
 }
 function closeDetail() {
@@ -616,131 +619,7 @@ $("detail-install").onclick = async () => {
   if (!e || busy) return;
   closeDetail();
   await installCatalog(e, false);
-  renderBundles();
 };
-
-// ---------------------------------------------------------------- featured
-async function loadFeatured() {
-  try {
-    featuredRaw = (await invoke("catalog_featured")) || [];
-  } catch (_) {
-    featuredRaw = [];
-  }
-  renderFeatured();
-}
-
-// Today's spotlight, else what's new, else what moved recently. Never an empty strip.
-function pickFeatured(today = new Date().toISOString().slice(0, 10)) {
-  const byId = new Map(catalog.map((e) => [e.id, e]));
-  const live = featuredRaw.filter((f) => f.from <= today && today <= f.to && byId.has(f.id)).slice(0, 4);
-  if (live.length) return { title: "Featured this week", hint: "Chosen by their authors.", items: live.map((f) => ({ ...byId.get(f.id), blurb: f.blurb })) };
-  const cutoff = new Date(Date.parse(today) - 30 * 86400000).toISOString().slice(0, 10);
-  const fresh = catalog.filter((e) => e.added && e.added >= cutoff).sort((a, b) => b.added.localeCompare(a.added)).slice(0, 4);
-  if (fresh.length) return { title: "New in the catalogue", hint: "Added in the last month.", items: fresh };
-  const moved = catalog.filter((e) => e.updated_at).sort((a, b) => b.updated_at.localeCompare(a.updated_at)).slice(0, 4);
-  return { title: "Recently updated", hint: "Authors who shipped something lately.", items: moved };
-}
-
-function renderFeatured() {
-  const box = $("featured");
-  if (!catalog.length) { box.classList.add("hidden"); return; }
-  const pick = pickFeatured();
-  if (!pick.items.length) { box.classList.add("hidden"); return; }
-  $("featured-title").textContent = pick.title;
-  $("featured-hint").textContent = pick.hint;
-  $("featured-list").innerHTML = pick.items
-    .map((e) => {
-      const canInstall = e.github || e.wowi || e.tukui || (e.wago && settings?.has_wago_key);
-      const meta = [e.category, e.downloads != null ? `${fmtCount(e.downloads)} downloads` : "", e.updated_at ? ago(e.updated_at) : ""].filter(Boolean).join(" · ");
-      return `<div class="feat" data-id="${esc(e.id)}">${iconTile("c", e.id, e.name)}<div class="feat-body">
-        <div class="feat-name" data-detail="${esc(e.id)}">${esc(e.name)}${e.installed ? ' <span class="badge ok">installed</span>' : ""}</div>
-        <div class="feat-blurb" title="${esc(e.blurb || e.desc || "")}">${esc(e.blurb || e.desc || "")}</div>
-        <div class="feat-meta">${esc(meta)}</div></div>
-        ${canInstall ? `<button class="btn small" data-act="install">${e.installed ? "Reinstall" : "Install"}</button>` : ""}
-      </div>`;
-    })
-    .join("");
-  box.classList.remove("hidden");
-  setBusy(busy);
-}
-
-$("featured-list").addEventListener("click", async (e) => {
-  const card = e.target.closest(".feat");
-  if (card && !e.target.closest("button")) return openDetail(card.dataset.id);
-  const btn = e.target.closest("button[data-act=install]");
-  if (!btn || busy) return;
-  const entry = catalog.find((x) => x.id === btn.closest(".feat").dataset.id);
-  if (entry) await installCatalog(entry, false);
-});
-
-// ---------------------------------------------------------------- starter packs
-async function loadBundles() {
-  try {
-    bundles = (await invoke("bundles")) || [];
-  } catch (_) {
-    bundles = [];
-  }
-  renderBundles();
-}
-
-function renderBundles() {
-  const box = $("bundle-list");
-  if (!bundles.length) {
-    box.innerHTML = "";
-    return;
-  }
-  box.innerHTML = bundles
-    .map((b) => {
-      const todo = b.addons.filter((a) => a.installable && !a.installed);
-      const chips = b.addons
-        .map((a) => {
-          const state = a.installed ? "have" : a.installable ? "todo" : a.needs_key ? "key" : "link";
-          const tip = a.installed ? "Installed" : a.installable ? a.desc : a.needs_key ? "Needs a Wago key (Settings)" : "Link only, not installable from here";
-          return `<button class="chip ${state}" data-detail="${esc(a.id)}" title="${esc(tip)}">${iconTile("c", a.id, a.name)}${esc(a.name)}${a.installed ? " \u2713" : ""}</button>`;
-        })
-        .join("");
-      const label = todo.length ? `Install all (${todo.length})` : b.addons.some((a) => a.installed) ? "Installed" : "Nothing to install";
-      return `<div class="bundle" data-bundle="${esc(b.id)}">
-        <div class="bundle-head"><span class="bundle-name">${esc(b.name)}</span><span class="grow"></span>
-          <button class="btn small ${todo.length ? "primary" : ""}" data-act="bundle" ${todo.length ? "" : "disabled"}>${label}</button></div>
-        <div class="bundle-desc">${esc(b.desc)}</div>
-        <div class="chips">${chips}</div>
-        ${b.note ? `<div class="bundle-note">${esc(b.note)}</div>` : ""}
-      </div>`;
-    })
-    .join("");
-  setBusy(busy);
-}
-
-$("bundle-list").addEventListener("click", async (e) => {
-  const d = e.target.closest("[data-detail]");
-  if (d) return openDetail(d.dataset.detail);
-  const btn = e.target.closest("button[data-act=bundle]");
-  if (!btn || busy) return;
-  const b = bundles.find((x) => x.id === btn.closest(".bundle").dataset.bundle);
-  if (!b) return;
-  const todo = b.addons.filter((a) => a.installable && !a.installed);
-  setBusy(true);
-  let done = 0;
-  const skipped = [];
-  for (const a of todo) {
-    btn.innerHTML = `<span class="spinner"></span> ${done + skipped.length + 1} / ${todo.length}: ${esc(a.name)}`;
-    try {
-      await invoke("install_catalog", { id: a.id, allowNonForever: false });
-      a.installed = true;
-      const row = catalog.find((c) => c.id === a.id);
-      if (row) row.installed = true;
-      done++;
-    } catch (err) {
-      skipped.push(String(err) === "NOT_FOREVER" ? `${a.name} (no Forever build)` : `${a.name}: ${explainError(err)}`);
-    }
-  }
-  setBusy(false);
-  toast(skipped.length ? `Installed ${done} of ${todo.length}. Skipped ${skipped.join("; ")}` : `Installed ${done} addon${done === 1 ? "" : "s"} from ${b.name}`, skipped.length > 0);
-  renderBundles();
-  renderCatalog();
-  await rescan(true);
-});
 $("btn-catalog-refresh").onclick = () => loadCatalog(true);
 $("browse-list").addEventListener("click", async (e) => {
   const row = e.target.closest(".item[data-id]");
@@ -759,10 +638,7 @@ async function installCatalog(entry, allowNonForever) {
     const p = await invoke("install_catalog", { id: entry.id, allowNonForever });
     toast(`Installed ${p.name} ${p.installed_version || ""}`);
     entry.installed = true;
-    for (const b of bundles) for (const a of b.addons) if (a.id === entry.id) a.installed = true;
-    renderBundles();
     renderCatalog();
-    renderFeatured();
     await rescan(true);
   } catch (err) {
     if (String(err) === "NOT_FOREVER") {
@@ -828,8 +704,9 @@ async function loadSettings() {
   $("wago-link").dataset.url = settings.wago_key_url;
   $("wago-status").textContent = settings.has_wago_key ? "A key is saved." : "No key saved. Wago-only addons will show as \"Needs Wago key\".";
   $("pref-prerelease").checked = !!settings.allow_prerelease;
+  $("pref-curse").checked = !!settings.curse_unofficial;
   $("catalog-info").textContent = settings.catalog_count
-    ? `${settings.catalog_count} addons · ${settings.catalog_source === "remote" ? "latest from GitHub" : "built-in copy (GitHub copy unreachable)"}${settings.catalog_updated ? " · " + settings.catalog_updated : ""}`
+    ? `${settings.catalog_count} addons · ${{ remote: "downloaded from instawow's list", cached: "today's copy of instawow's list", "cached (old)": "older copy (instawow's list unreachable)" }[settings.catalog_source] || settings.catalog_source}${settings.catalog_updated ? " · " + settings.catalog_updated : ""}`
     : "not loaded yet";
 }
 
@@ -940,6 +817,17 @@ $("pref-prerelease").addEventListener("change", async (e) => {
     toast(String(err), true);
   }
 });
+$("pref-curse").addEventListener("change", async (e) => {
+  try {
+    await invoke("set_prefs", { curseUnofficial: e.target.checked });
+    toast(e.target.checked ? "CurseForge-only addons can be installed now (unofficial)" : "CurseForge-only addons are link-only again");
+    await loadSettings();
+    renderCatalog();
+    await rescan();
+  } catch (err) {
+    toast(String(err), true);
+  }
+});
 
 // ---------------------------------------------------------------- export / import
 // The list goes out through the share sheet and comes back through the file picker.
@@ -1020,7 +908,9 @@ $("btn-report-gh").onclick = async () => {
     const d = await diag();
     const body = "**What happened?**\n\n(describe it here)\n\n**Diagnostics**\n```\n" + d.slice(0, 5000) + "\n```";
     const url = `${settings.repo_url}/issues/new?title=${encodeURIComponent("Problem: ")}&body=${encodeURIComponent(body)}`;
-    if (url.length > 7500) {
+    // Signed-out visitors are bounced to GitHub's login with this URL packed
+    // into return_to; GitHub errors on that once the URL is a few KB.
+    if (url.length > 2000) {
       await copyText(d);
       toast("Diagnostics copied, paste them into the issue");
       openUrl(`${settings.repo_url}/issues/new?title=${encodeURIComponent("Problem: ")}`);
@@ -1069,7 +959,6 @@ $("selfupdate-go").onclick = () => selfUpdate?.latest?.url && openUrl(selfUpdate
   loadCatalog(false);
   checkSelf(false);
   if (settings?.start_tab?.startsWith("detail:")) { await loadCatalog(false); document.querySelector(`.tab[data-tab="browse"]`)?.click(); openDetail(settings.start_tab.slice(7)); }
-  else if (settings?.start_tab === "guide") { document.querySelector(`.tab[data-tab="start"]`)?.click(); $("guide").open = true; }
   else if (settings?.start_tab) document.querySelector(`.tab[data-tab="${settings.start_tab}"]`)?.click();
   // One-time note on the first launch after an update.
   invoke("whats_new")

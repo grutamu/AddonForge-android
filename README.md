@@ -7,7 +7,7 @@ This is an unofficial port of [AddonForge](https://github.com/Topher121/AddonFor
 ![Find addons on the AYN Thor: the catalogue on the left, an addon's details and Install button on the right](docs/screenshots/find-addons.png)
 
 - **Made for the controller.** Every screen works with the D-pad and buttons. Touch works too.
-- **Private.** No account, no ads, no analytics. The app talks only to the sites addons are published on (GitHub, Wago, WoWInterface, TukUI), plus GitHub to see if a new AddonForge is out.
+- **Private.** No account, no ads, no analytics. The app talks only to the sites addons are published on (GitHub, Wago, WoWInterface, TukUI; CurseForge's file storage and cfwidget.com only if you turn on the unofficial CurseForge switch), plus GitHub to see if a new AddonForge is out.
 - **Careful with your game.** It only ever changes `Interface/AddOns`. Your addon settings (in `WTF`) are never touched, and it refuses any download that contains a program.
 
 ## Install
@@ -31,21 +31,18 @@ That's it: your addons show up under **My addons**, and AddonForge checks them f
 |---|---|
 | **My addons** | Everything in your AddOns folder, with what needs updating. **Update all** updates everything at once. Select an addon to pin it to its current version, hide it, reinstall or remove it. |
 | **Find addons** | The catalogue of addons that work on Forever. Search, sort by popularity, read about an addon and install it. You can also install from any GitHub link. |
-| **Starter packs** | New to addons? Hand-picked sets (a good start, levelling, dungeons and raids, bags, chat…) you can install in one go, and a short guide to how addons work. |
-| **Settings** | Game folder, your optional Wago key, controller layout, sharing your addon list, reporting a problem. |
-
-![Starter packs, with the guide for new players on the right](docs/screenshots/starter-packs.png)
+| **Settings** | Game folder, your optional Wago key, sharing your addon list, reporting a problem. |
 
 ### Controller
 
-The default is the Nintendo layout printed on the Thor. If your controller says otherwise, switch to Xbox in **Settings → Controller** (it swaps A/B and X/Y); the same screen shows which button you just pressed.
+Buttons follow the layout Android reports for your controller; if A and B feel swapped, change it in your device's controller settings.
 
 | Button | Does |
 |---|---|
 | D-pad / left stick | Move around |
 | **A** | Select, press |
 | **B** | Back: closes a dialog, then the details, then goes to My addons, then leaves the app |
-| **X** | The main action on the screen: Update all, Install, Install pack |
+| **X** | The main action on the screen: Update all, Install |
 | **Y** | Search |
 | **L / R** | Previous / next tab |
 | **+** | Check for updates (on My addons) |
@@ -56,7 +53,7 @@ The default is the Nintendo layout printed on the Thor. If your controller says 
 
 Start WoW from your launcher. On the character-select screen there is an **AddOns** button in the corner: tick the ones you want. Already in game? Type `/reload` in chat (the launcher's keyboard has `/`).
 
-![Settings: share or import your addon list, report a problem, pick your controller layout](docs/screenshots/settings.png)
+![Settings: share or import your addon list, report a problem](docs/screenshots/settings.png)
 
 ## Questions
 
@@ -64,7 +61,7 @@ Start WoW from your launcher. On the character-select screen there is an **AddOn
 
 **An addon says "Needs Wago key".** Some authors only publish on Wago, whose API needs a free key from [addons.wago.io](https://addons.wago.io/account/apikeys). Paste it in Settings. It stays on your device and is only ever sent to Wago.
 
-**An addon says "CurseForge only".** CurseForge doesn't let apps like this download from it. AddonForge shows you the addon's page instead.
+**An addon says "CurseForge only".** CurseForge doesn't let apps like this use its API, so by default AddonForge shows you the addon's page. **Settings → Updates → Install CurseForge-only addons (unofficial)** lets AddonForge install and update them anyway: it looks up the latest file through cfwidget.com and downloads it from CurseForge's file storage. CurseForge doesn't support this, and it can stop working at any time; the addon then goes back to its link.
 
 **An addon says "not for Forever".** The author hasn't published a version for Forever yet. It may still load, or it may error in game.
 
@@ -76,13 +73,11 @@ Start WoW from your launcher. On the character-select screen there is an **AddOn
 
 ## Something wrong?
 
-In the app: **Settings → Report a problem → Report on GitHub**. It opens a new issue with a diagnostics report filled in (version, game folder, addon list, last few log lines). Nothing is sent until you press submit, and you can read it first. Or [open an issue](https://github.com/grutamu/AddonForge-android/issues) yourself.
+In the app: **Settings → Report a problem → Report on GitHub**. It opens a new issue (you need a GitHub account) and copies a diagnostics report (version, game folder, addon list, last few log lines) for you to paste in; a short one is filled in for you. Nothing is sent until you press submit, and you can read it first. Or [open an issue](https://github.com/grutamu/AddonForge-android/issues) yourself.
 
 ## Where addons come from
 
-AddonForge reads your `Interface/AddOns` folder and each addon's `.toc` file to work out where it was published. On top of that there is a **catalogue**, a list of where each author publishes releases. Downloads always come straight from the author, never from a copy.
-
-The catalogue and the download counts are maintained by the original AddonForge project. To get an addon listed or featured, use [their contributing guide](https://github.com/Topher121/AddonForge/blob/main/CONTRIBUTING.md).
+AddonForge reads your `Interface/AddOns` folder and each addon's `.toc` file to work out where it was published. On top of that there is a **catalogue**: [instawow's public list](https://github.com/layday/instawow-data) of addons CurseForge tags for Forever. Downloads always come straight from where the author publishes, never from a copy.
 
 | Source | Key needed? | Notes |
 |---|---|---|
@@ -90,7 +85,7 @@ The catalogue and the download counts are maintained by the original AddonForge 
 | Wago Addons | Your own free key | Paste it in Settings. Only sent to addons.wago.io. |
 | WoWInterface | No | |
 | TukUI | No | ElvUI / Tukui. |
-| CurseForge | Link only | Their API terms don't allow a key to ship inside an app. |
+| CurseForge | No | Link only unless you turn on **Install CurseForge-only addons (unofficial)** in Settings. Their API terms don't allow a key to ship inside an app. |
 
 ## How it's built
 
@@ -101,5 +96,7 @@ Developers: see [CONTRIBUTING.md](CONTRIBUTING.md) for building the APK and runn
 ## Credits and licence
 
 Based on [AddonForge](https://github.com/Topher121/AddonForge) by Pocket Forge Studios, MIT licensed. The original copyright notice is kept in [LICENSE](LICENSE).
+
+The addon catalogue is built from [instawow](https://github.com/layday/instawow)'s public addon list ([layday/instawow-data](https://github.com/layday/instawow-data)) by layday. Thank you. AddonForge isn't affiliated with instawow; it reads that list as published and converts it on your device.
 
 AddonForge is an independent project. It is not affiliated with, endorsed by or connected to CurseForge, Overwolf, Blizzard Entertainment, Wago, WoWInterface or TukUI. World of Warcraft is a trademark of Blizzard Entertainment.

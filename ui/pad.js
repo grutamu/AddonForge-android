@@ -8,10 +8,10 @@
 
   // Lists are rebuilt with innerHTML: make rows focusable, keep the focus.
   function prepare(root) {
-    root.querySelectorAll(".item, .feat").forEach((el) => { el.tabIndex = 0; el.setAttribute("role", "button"); });
-    root.querySelectorAll(".addon-detail, .c-src a, .feat-name").forEach((el) => { el.tabIndex = -1; });
+    root.querySelectorAll(".item").forEach((el) => { el.tabIndex = 0; el.setAttribute("role", "button"); });
+    root.querySelectorAll(".addon-detail, .c-src a").forEach((el) => { el.tabIndex = -1; });
   }
-  for (const id of ["installed-list", "browse-list", "featured-list", "bundle-list"]) {
+  for (const id of ["installed-list", "browse-list"]) {
     const list = $(id);
     new MutationObserver(() => {
       prepare(list);
@@ -32,33 +32,9 @@
   }
 
   // ------------------------------------------------------------ gamepad
-  const LAYOUT_KEY = "af-pad-layout";
-  const layout = () => localStorage.getItem(LAYOUT_KEY) || "nintendo";
-  // Nintendo: A confirms, B goes back, X (top) = main action, Y = search.
-  // Xbox swaps both pairs.
-  function role(name) {
-    const swap = layout() === "xbox";
-    const map = { A: swap ? "back" : "confirm", B: swap ? "confirm" : "back", X: swap ? "search" : "primary", Y: swap ? "primary" : "search" };
-    return map[name] || name;
-  }
-  function glyphs() {
-    const swap = layout() === "xbox";
-    body.style.setProperty("--g-confirm", `"${swap ? "B" : "A"}"`);
-    body.style.setProperty("--g-back", `"${swap ? "A" : "B"}"`);
-    body.style.setProperty("--g-primary", `"${swap ? "Y" : "X"}"`);
-    document.querySelectorAll(".pad-layout").forEach((b) => {
-      b.classList.toggle("active", b.dataset.layout === layout());
-      b.setAttribute("aria-checked", b.dataset.layout === layout());
-    });
-  }
-  document.querySelector(".pad-layouts").addEventListener("click", (e) => {
-    const b = e.target.closest(".pad-layout");
-    if (!b) return;
-    localStorage.setItem(LAYOUT_KEY, b.dataset.layout);
-    glyphs();
-    toast(`${b.firstChild.textContent} layout: ${role("A") === "confirm" ? "A" : "B"} confirms`);
-  });
-  glyphs();
+  // Buttons as Android names them (the OS / firmware owns the layout): A
+  // confirms, B goes back, X (top) = main action, Y = search.
+  const ROLE = { A: "confirm", B: "back", X: "primary", Y: "search" };
 
   const FOCUSABLE = 'button, a[href], a[data-url], input:not([type=hidden]), select, summary, [tabindex="0"]';
   const open = (id) => !$(id).classList.contains("hidden");
@@ -94,7 +70,7 @@
     const s = scope();
     if (s !== body) return focus(candidates()[0]);
     const panel = document.querySelector(".panel.active");
-    const pick = panel.querySelector(".item.selected") || panel.querySelector(".item[tabindex], .bundle .chip, .feat") || candidates().find((el) => panel.contains(el));
+    const pick = panel.querySelector(".item.selected") || panel.querySelector(".item[tabindex]") || candidates().find((el) => panel.contains(el));
     focus(pick || candidates()[0]);
   }
 
@@ -110,12 +86,15 @@
     const r = cur.getBoundingClientRect();
     const cx = r.left + r.width / 2, cy = r.top + r.height / 2;
     const gap = (a1, a2, b1, b2) => Math.max(0, a1 - b2, b1 - a2);
+    const vertical = dir === "UP" || dir === "DOWN";
+    // Up and down inside the side pane stay in it (its text is read by
+    // scrolling, not by jumping to the list); Left and Back leave it.
+    if (vertical && scope() === body && $("pane").contains(cur)) return paneMove(dir === "DOWN", cur);
     let best = null, bestScore = Infinity;
     for (const el of candidates()) {
       if (el === cur) continue;
       const c = el.getBoundingClientRect();
       const ex = c.left + c.width / 2, ey = c.top + c.height / 2;
-      const vertical = dir === "UP" || dir === "DOWN";
       let along;
       if (cur.contains(el) || el.contains(cur)) {
         along = { UP: cy - ey, DOWN: ey - cy, LEFT: cx - ex, RIGHT: ex - cx }[dir];
@@ -132,11 +111,64 @@
     if (best) focus(best);
   }
 
+  // Reading the side pane with the stick. While there is more text that way,
+  // each press scrolls it a step, then the focus moves onto the next button
+  // that way once it is fully in sight (Update, Pin, … sit under the text);
+  // from the bar pinned under the text (Open its page / Install) that is a
+  // button that has just come into sight. A focused button scrolled out of
+  // sight hands the focus to the pinned bar, so it is always on screen.
+  // At either end the focus steps to the nearest button in sight that way.
+  const PINNED = ".row.right, .pane-actions";
+  let paneTimer = 0;
+  function paneMove(down, cur) {
+    const pane = $("pane");
+    const els = candidates().filter((el) => pane.contains(el));
+    const flow = els.filter((el) => !el.closest(PINNED));
+    const pinned = els.filter((el) => el.closest(PINNED));
+    const inSight = (el) => {
+      const pr = pane.getBoundingClientRect();
+      const bars = pinned.map((p) => p.closest(PINNED).getBoundingClientRect().top).filter((t) => t < pr.bottom);
+      const bottom = bars.length ? Math.min(...bars) : pr.bottom;
+      const c = el.getBoundingClientRect();
+      return c.top >= pr.top - 1 && c.bottom <= bottom + 1;
+    };
+    // Buttons that way from `from`, nearest first (from the pinned bar: all of them).
+    const ahead = (from) => {
+      const i = flow.indexOf(from);
+      if (down) return i < 0 ? flow : flow.slice(i + 1);
+      return (i < 0 ? flow : flow.slice(0, i)).reverse();
+    };
+    // The next button that way is already in sight: just go there (from the
+    // pinned bar that only works upwards, nothing is under it).
+    const near = cur.closest(PINNED) ? (down ? null : ahead(cur).find(inSight)) : ahead(cur)[0];
+    if (near && inSight(near)) return focus(near);
+    const more = down ? pane.scrollTop + pane.clientHeight < pane.scrollHeight - 1 : pane.scrollTop > 0;
+    if (!more) {
+      if (down && cur.closest(PINNED)) return; // nothing under the pinned bar
+      const n = ahead(cur).find(inSight) || (!cur.closest(PINNED) && ahead(cur)[0]);
+      if (n) return focus(n);
+      if (down && pinned[0]) focus(pinned[0]);
+      return;
+    }
+    const before = new Set(flow.filter(inSight));
+    const step = Math.round(pane.clientHeight * 0.6);
+    pane.scrollBy({ top: down ? step : -step, behavior: "smooth" });
+    clearTimeout(paneTimer);
+    paneTimer = setTimeout(() => {
+      const at = current();
+      if (!at || !pane.contains(at)) return;
+      const fromBar = !!at.closest(PINNED);
+      const n = ahead(at).find((el) => inSight(el) && (!fromBar || !before.has(el)));
+      if (n) focus(n);
+      else if (!fromBar && !inSight(at) && pinned[0]) focus(pinned[0]);
+    }, 350);
+  }
+
   // Re-renders replace the focused row: find the same row / button again.
   let lastFocus = null;
   function remember(el) {
-    const row = el.closest("[data-key], [data-id], [data-bundle]");
-    lastFocus = el.id ? { id: el.id } : row ? { row: row.dataset.key || row.dataset.id || row.dataset.bundle, act: el.dataset.act || el.dataset.detail || "", self: el === row } : null;
+    const row = el.closest("[data-key], [data-id]");
+    lastFocus = el.id ? { id: el.id } : row ? { row: row.dataset.key || row.dataset.id, act: el.dataset.act || el.dataset.detail || "", self: el === row } : null;
   }
   document.addEventListener("focusin", (e) => remember(e.target));
   document.addEventListener("pointerdown", () => { wanted = null; lastPointer = Date.now(); }, true);
@@ -144,7 +176,7 @@
     if (!body.classList.contains("pad-used") || current() || !lastFocus) return;
     let el = lastFocus.id && $(lastFocus.id);
     if (!el && lastFocus.row) {
-      const row = [...document.querySelectorAll(".panel.active [data-key], .panel.active [data-id], .panel.active [data-bundle]")].find((r) => (r.dataset.key || r.dataset.id || r.dataset.bundle) === lastFocus.row);
+      const row = [...document.querySelectorAll(".panel.active [data-key], .panel.active [data-id]")].find((r) => (r.dataset.key || r.dataset.id) === lastFocus.row);
       if (row) el = (!lastFocus.self && lastFocus.act && row.querySelector(`[data-act="${lastFocus.act}"], [data-detail="${lastFocus.act}"]`)) || row;
     }
     if (el && shown(el) && !el.disabled) el.focus({ preventScroll: true });
@@ -168,11 +200,7 @@
     if (open("modal")) return $("modal-yes").click();
     const tab = body.dataset.tab;
     if (tab === "installed" && !$("btn-update-all").disabled) return $("btn-update-all").click();
-    if ((tab === "browse" || tab === "start") && detailId && shown($("detail-install"))) return $("detail-install").click();
-    if (tab === "start") {
-      const b = current()?.closest(".bundle")?.querySelector("[data-act=bundle]:not([disabled])") || document.querySelector("#bundle-list [data-act=bundle]:not([disabled])");
-      b?.click();
-    }
+    if (tab === "browse" && detailId && shown($("detail-install"))) return $("detail-install").click();
   }
 
   function search() {
@@ -202,11 +230,9 @@
     A?.exit();
   }
 
-  const LABEL = { confirm: "Confirm", back: "Back", primary: "Main action", search: "Search", L1: "Previous tab", R1: "Next tab", START: "Check for updates" };
   window.afPad = (name) => {
     if (name !== "BACK") body.classList.add("pad-used");
-    const r = role(name);
-    if ($("pad-test") && body.dataset.tab === "settings") $("pad-test").textContent = `${name} \u2192 ${LABEL[r] || (name.length < 6 ? "Move " + name.toLowerCase() : "nothing")}`;
+    const r = ROLE[name];
     if (["UP", "DOWN", "LEFT", "RIGHT"].includes(name)) return move(name);
     if (name === "BACK" || r === "back") return back();
     if (r === "confirm") return confirm();

@@ -1,15 +1,14 @@
-//! Addon icons, three sources in order:
-//!  1. the addon's own `## IconTexture` file on disk (TGA / BLP / PNG),
-//!  2. the GitHub author's avatar for GitHub-sourced addons (or a catalogue
-//!     entry's explicit `icon` URL, https only),
-//!  3. nothing: the UI draws a lettered tile.
+//! Addon icons: only the addon's own `## IconTexture` file on disk
+//! (TGA / BLP / PNG), the image the game itself shows. Everything else gets
+//! a lettered tile in the UI. Nothing is fetched to make an icon: guessed
+//! icons (author avatars, files picked out of repos) were too often wrong,
+//! and no icon beats a wrong one (owner, 2026-10-15).
 //!
 //! Icons the game keeps inside its own data files (`Interface\Icons\...`)
-//! are not readable from disk and are deliberately NOT fetched from any
-//! third-party site: the app only talks to the addon hosts.
+//! are not readable from disk.
 //!
-//! Everything is cached in `icons/` beside the state file as 32px PNGs and
-//! handed to the UI as data URLs.
+//! Cached in `icons/` beside the state file as 32px PNGs and handed to the
+//! UI as data URLs.
 
 use base64::Engine;
 use image::imageops::FilterType;
@@ -20,7 +19,6 @@ use std::path::{Path, PathBuf};
 use std::time::{Duration, SystemTime};
 
 const SIZE: u32 = 32;
-const AVATAR_TTL: Duration = Duration::from_secs(30 * 24 * 3600);
 
 fn cache_dir() -> PathBuf {
     crate::state::AppState::dir().join("icons")
@@ -36,7 +34,13 @@ fn to_data_url(png: &[u8]) -> String {
     format!("data:image/png;base64,{}", base64::engine::general_purpose::STANDARD.encode(png))
 }
 
+/// Square 32px PNG. A strip (Plater's cast bar) cropped to a square is
+/// unrecognisable: anything over 2:1 is refused and gets the lettered tile.
 fn encode_png(img: image::DynamicImage) -> anyhow::Result<Vec<u8>> {
+    let (w, h) = (img.width().max(1), img.height().max(1));
+    if w > 2 * h || h > 2 * w {
+        anyhow::bail!("not an icon: {w}x{h}");
+    }
     let small = img.resize_to_fill(SIZE, SIZE, FilterType::Lanczos3).to_rgba8();
     let mut out = Vec::new();
     small.write_to(&mut std::io::Cursor::new(&mut out), image::ImageFormat::Png)?;
@@ -94,49 +98,6 @@ pub fn local_icon(install: &Path, texture: &str) -> Option<String> {
     let _ = fs::create_dir_all(cache_dir());
     let _ = fs::write(&cache, &png);
     Some(to_data_url(&png))
-}
-
-/// Fetch an https image (GitHub avatar or a catalogue `icon` URL), cached for 30 days.
-pub async fn remote_icon(client: &reqwest::Client, url: &str) -> Option<String> {
-    if !url.starts_with("https://") {
-        return None;
-    }
-    let cache = cache_dir().join(format!("{}.png", key(url)));
-    if let Ok(meta) = fs::metadata(&cache) {
-        let fresh = meta.modified().ok().and_then(|m| m.elapsed().ok()).map(|age| age < AVATAR_TTL).unwrap_or(false);
-        if fresh {
-            if let Ok(png) = fs::read(&cache) {
-                return Some(to_data_url(&png));
-            }
-        }
-    }
-    let bytes = client
-        .get(url)
-        .timeout(Duration::from_secs(15))
-        .send()
-        .await
-        .ok()?
-        .error_for_status()
-        .ok()?
-        .bytes()
-        .await
-        .ok()?;
-    if bytes.len() > 2 * 1024 * 1024 {
-        return None;
-    }
-    let img = image::load_from_memory(&bytes).ok()?;
-    let png = encode_png(img).ok()?;
-    let _ = fs::create_dir_all(cache_dir());
-    let _ = fs::write(&cache, &png);
-    Some(to_data_url(&png))
-}
-
-pub fn github_avatar_url(repo: &str) -> Option<String> {
-    let owner = repo.split('/').next()?.trim();
-    if owner.is_empty() {
-        return None;
-    }
-    Some(format!("https://github.com/{owner}.png?size=64"))
 }
 
 // ---------------------------------------------------------------- addon details (README excerpt + first image)
@@ -372,6 +333,31 @@ pub async fn github_details(client: &reqwest::Client, repo: &str) -> Details {
     };
     let _ = fs::create_dir_all(cache_dir());
     let cached = CachedDetails { summary: summary.clone(), image_url: image_url.filter(|_| image.is_some()) };
+    let _ = fs::write(&cache, serde_json::to_vec(&cached).unwrap_or_default());
+    Details { summary, image }
+}
+
+/// Summary and thumbnail for a CurseForge project (unofficially, through
+/// cfwidget). Cached a day.
+pub async fn curse_details(client: &reqwest::Client, id: u64) -> Details {
+    let cache = cache_dir().join(format!("{}.json", key(&format!("curse|{id}"))));
+    if let Ok(meta) = fs::metadata(&cache) {
+        let fresh = meta.modified().ok().and_then(|m| m.elapsed().ok()).map(|age| age < README_TTL).unwrap_or(false);
+        if fresh {
+            if let Some(d) = fs::read(&cache).ok().and_then(|b| serde_json::from_slice::<CachedDetails>(&b).ok()) {
+                return Details { summary: d.summary, image: d.image_url.as_deref().and_then(preview_cached) };
+            }
+        }
+    }
+    let Some((line, text, thumb)) = crate::sources::curseforge::details(client, id).await else { return Details::default() };
+    let text = if text.starts_with(line.trim()) { text } else { format!("{line} {text}") };
+    let summary = Some(readme_excerpt(&text)).filter(|s| !s.is_empty());
+    let image = match &thumb {
+        Some(u) => preview_image(client, u).await,
+        None => None,
+    };
+    let _ = fs::create_dir_all(cache_dir());
+    let cached = CachedDetails { summary: summary.clone(), image_url: thumb.filter(|_| image.is_some()) };
     let _ = fs::write(&cache, serde_json::to_vec(&cached).unwrap_or_default());
     Details { summary, image }
 }

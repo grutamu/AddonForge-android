@@ -16,7 +16,6 @@
   <nav class="tabs" aria-label="Main navigation">
     <button class="tab active" data-tab="installed" aria-current="page">My addons<span id="rail-badge" class="rail-badge hidden"></span></button>
     <button class="tab" data-tab="browse">Find addons</button>
-    <button class="tab" data-tab="start">Starter packs</button>
     <button class="tab" data-tab="settings">Settings</button>
   </nav>
 
@@ -45,26 +44,16 @@
   </section>
 
   <section id="tab-browse" class="panel">
-    <div id="featured" class="featured hidden">
-      <div class="section-title"><span id="featured-title">Featured this week</span> <span class="hint inline" id="featured-hint"></span></div>
-      <div id="featured-list" class="featured-list"></div>
-      <p class="hint">Featuring is free and always will be. Authors: <a href="#" data-url="https://github.com/Topher121/AddonForge/issues/new?template=feature.yml">ask to be featured</a> and pick a week.</p>
-    </div>
     <div class="toolbar">
       <input id="browse-filter" type="search" placeholder="Search the catalogue" aria-label="Search catalogue">
       <div id="sort-chips" class="chip-row" role="radiogroup" aria-label="Sort">
-        <button class="fchip active" data-value="name" role="radio" aria-checked="true">A–Z<b></b></button>
-        <button class="fchip" data-value="downloads" role="radio" aria-checked="false">Popular<b></b></button>
+        <button class="fchip" data-value="name" role="radio" aria-checked="false">A–Z<b></b></button>
+        <button class="fchip active" data-value="downloads" role="radio" aria-checked="true">Popular<b></b></button>
         <button class="fchip" data-value="updated" role="radio" aria-checked="false">Recent<b></b></button>
       </div>
     </div>
     <div id="browse-list" class="list"></div>
-    <p class="hint">The catalogue is a public list on GitHub. Add an addon with a pull request and it downloads straight from the author's own releases.</p>
-  </section>
-
-  <section id="tab-start" class="panel">
-    <div class="section-title">Starter packs <span class="hint inline">Hand-picked sets. Install a whole pack, or select an addon to read about it.</span></div>
-    <div id="bundle-list" class="bundles"></div>
+    <p class="hint">The catalogue is instawow's public list of addons CurseForge tags for Forever (<a href="#" data-url="https://github.com/layday/instawow-data">layday/instawow-data</a>), refreshed daily. Addons with a GitHub repo install from GitHub; the rest need the unofficial CurseForge switch in Settings.</p>
   </section>
 
   <section id="tab-settings" class="panel prefs">
@@ -87,6 +76,8 @@
       <div class="pref-body">
         <label class="chk big"><input type="checkbox" id="pref-prerelease"> Include pre-releases and beta builds</label>
         <p class="hint">For authors who only ship their Forever build as a GitHub pre-release or a Wago beta. Uses the GitHub API for the check, limited to 60 requests an hour without a token.</p>
+        <label class="chk big"><input type="checkbox" id="pref-curse"> Install CurseForge-only addons (unofficial)</label>
+        <p class="hint">For addons that aren't on GitHub, Wago, WoWInterface or TukUI. Not supported by CurseForge: finds the latest file through cfwidget.com and downloads it from CurseForge's file storage. It can stop working at any time; the addon then goes back to its CurseForge link.</p>
       </div>
     </div>
 
@@ -128,24 +119,13 @@
     </div>
 
     <div class="pref">
-      <div class="pref-label">Controller</div>
-      <div class="pref-body">
-        <div class="row pad-layouts" role="radiogroup" aria-label="Button layout">
-          <button class="btn pad-layout" data-layout="nintendo" role="radio">Nintendo<span>A confirms · B goes back</span></button>
-          <button class="btn pad-layout" data-layout="xbox" role="radio">Xbox<span>B confirms · A goes back</span></button>
-        </div>
-        <p class="hint">Match the buttons printed on your controller. Press any button to test: <b id="pad-test">nothing pressed yet</b></p>
-      </div>
-    </div>
-
-    <div class="pref">
       <div class="pref-label">About</div>
       <div class="pref-body about">
         <p>AddonForge for Android <span id="version"></span></p>
         <p class="hint">An unofficial port of <a href="#" data-url="https://github.com/Topher121/AddonForge">AddonForge</a> by Pocket Forge Studios, who don't make or support this version: please report problems here, not to them. MIT licensed.</p>
         <p class="hint">No accounts, no ads, no analytics. Talks only to the addon sites (GitHub, Wago, WoWInterface, TukUI), plus one request to GitHub at launch to see if AddonForge itself has an update.</p>
         <p class="hint">Catalogue: <span id="catalog-info">…</span><br>Settings file: <code id="state-file"></code></p>
-        <p class="hint"><a href="#" data-url="https://github.com/grutamu/AddonForge-android">Source code and bug reports</a> · <a href="#" data-url="https://github.com/Topher121/AddonForge">The original AddonForge and its catalogue</a></p>
+        <p class="hint"><a href="#" data-url="https://github.com/grutamu/AddonForge-android">Source code and bug reports</a> · <a href="#" data-url="https://github.com/Topher121/AddonForge">The original AddonForge</a> · <a href="#" data-url="https://github.com/layday/instawow-data">Catalogue from instawow</a></p>
         <p class="hint">Independent project. Not affiliated with CurseForge, Overwolf, Blizzard Entertainment, Wago, WoWInterface or TukUI. World of Warcraft is a trademark of Blizzard Entertainment.</p>
       </div>
     </div>
@@ -191,7 +171,7 @@
     </div>
     <div class="pane-home-browse">
       <div class="pane-title">Find addons</div>
-      <p class="hint">Select an addon to read about it and install it. Featuring is free and always will be.</p>
+      <p class="hint">Select an addon to read about it and install it.</p>
       <div class="pane-tools">
         <div class="toolbar sub">
           <label for="gh-repo" class="lbl">Install from GitHub</label>
@@ -201,19 +181,6 @@
         </div>
         <button id="btn-catalog-refresh" class="btn">Refresh catalogue</button>
       </div>
-    </div>
-    <div class="pane-home-start">
-      <details class="guide" id="guide" open>
-        <summary>New to addons? Start here</summary>
-        <div class="guide-body">
-          <p><b>What an addon is.</b> A small folder of text files (Lua and XML) that WoW loads when you log in. Addons can change how the interface looks and add helpers like boss timers or a better bag window. They cannot play the game for you, and on Forever a lot of combat information is deliberately hidden from them.</p>
-          <p><b>Where they live.</b> Inside your WoW folder, under <code>Interface/AddOns</code>. Each addon is one or more folders in there. That is the only place AddonForge writes to. Your settings for each addon are kept separately in the <code>WTF</code> folder, which AddonForge never touches, so removing or updating an addon does not lose its settings.</p>
-          <p><b>Turning them on.</b> Install from here, then start WoW from your launcher. On the character-select screen there is an <b>AddOns</b> button in the corner: tick the ones you want and untick any you don't. Already in game? Type <code>/reload</code> in chat (the launcher's keyboard has <code>/</code>) to load them.</p>
-          <p><b>"Forever" builds.</b> Forever uses a newer interface than Classic Era, so addons need a version made for it. AddonForge tells you which ones have one. An addon marked "not for Forever" may still load but can error or show nothing.</p>
-          <p><b>Updates.</b> Open AddonForge now and then, or leave it to check when it starts. Authors publish a new version, you press Update, done. Pin an addon if you want to hold it at a version you like.</p>
-          <p><b>Beta note.</b> The Forever beta has a bug where addon settings sometimes don't load on the next login. That is the game, not the addon. Some people use an addon called SVShim as a workaround until Blizzard fixes it; it is linked from the catalogue, and AddonForge will tell you when it is time to remove it.</p>
-        </div>
-      </details>
     </div>
   </div>
 </aside>

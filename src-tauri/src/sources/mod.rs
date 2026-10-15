@@ -2,6 +2,7 @@
 //! the zip" for one addon. The app talks to these sites directly over
 //! HTTPS; nothing goes through a Pocket Forge server.
 
+pub mod curseforge;
 pub mod github;
 pub mod tukui;
 pub mod wago;
@@ -16,6 +17,8 @@ pub enum Source {
     Wago(String),
     Wowi(u64),
     Tukui(String),
+    /// CurseForge project id. Unofficial, only when Settings allows it.
+    Curse(u64),
 }
 
 impl Source {
@@ -25,6 +28,7 @@ impl Source {
             Source::Wago(_) => "wago",
             Source::Wowi(_) => "wowi",
             Source::Tukui(_) => "tukui",
+            Source::Curse(_) => "curse",
         }
     }
     pub fn id(&self) -> String {
@@ -33,6 +37,7 @@ impl Source {
             Source::Wago(i) => i.clone(),
             Source::Wowi(i) => i.to_string(),
             Source::Tukui(s) => s.clone(),
+            Source::Curse(i) => i.to_string(),
         }
     }
     pub fn label(&self) -> String {
@@ -41,6 +46,7 @@ impl Source {
             Source::Wago(_) => "Wago".into(),
             Source::Wowi(_) => "WoWInterface".into(),
             Source::Tukui(_) => "TukUI".into(),
+            Source::Curse(_) => "CurseForge (unofficial)".into(),
         }
     }
     pub fn url(&self) -> String {
@@ -49,6 +55,7 @@ impl Source {
             Source::Wago(i) => format!("https://addons.wago.io/addons/{i}"),
             Source::Wowi(i) => format!("https://www.wowinterface.com/downloads/info{i}"),
             Source::Tukui(s) => format!("https://tukui.org/{s}"),
+            Source::Curse(i) => format!("https://www.curseforge.com/projects/{i}"),
         }
     }
     /// Rebuild from the strings stored in state.json.
@@ -58,6 +65,7 @@ impl Source {
             "wago" => Some(Source::Wago(id.to_string())),
             "wowi" => id.parse().ok().map(Source::Wowi),
             "tukui" => Some(Source::Tukui(id.to_string())),
+            "curse" => id.parse().ok().map(Source::Curse),
             _ => None,
         }
     }
@@ -94,12 +102,30 @@ pub async fn resolve(
         Source::Wago(id) => wago::resolve(client, id, opts.wago_key, opts.prerelease).await,
         Source::Wowi(id) => wowi::resolve(client, *id).await,
         Source::Tukui(slug) => tukui::resolve(client, slug).await,
+        Source::Curse(id) => curseforge::resolve(client, *id, opts.prerelease).await,
     }
 }
 
-/// "v1.2.3" == "1.2.3" for update checks.
+/// "v1.2.3" == "1.2.3" for update checks. Some packaged TOCs say "#1.2.3".
 pub fn normalize_version(v: &str) -> String {
-    v.trim().trim_start_matches(['v', 'V']).trim().to_ascii_lowercase()
+    v.trim().trim_start_matches(['v', 'V', '#']).trim().to_ascii_lowercase()
+}
+
+/// Does the release name contain each of these versions as a whole version
+/// (`12.1.0` in `Questie-v12.1.0+v1.0.6`, but `1.2` not in `1.2.3`)?
+pub fn names_every_version(remote: &str, versions: &[String]) -> bool {
+    let remote = remote.to_ascii_lowercase();
+    let whole = |v: &str| {
+        let v = normalize_version(v);
+        !v.is_empty()
+            && remote.match_indices(v.as_str()).any(|(i, _)| {
+                let before = remote[..i].chars().last();
+                let after = remote[i + v.len()..].chars().next();
+                let edge = |c: Option<char>| c.map(|c| !c.is_ascii_alphanumeric() && c != '.').unwrap_or(true);
+                (edge(before) || (before == Some('v') && edge(remote[..i - 1].chars().last()))) && edge(after)
+            })
+    };
+    !versions.is_empty() && versions.iter().all(|v| whole(v))
 }
 
 /// Turn "https://github.com/owner/repo/..." or "owner/repo" into "owner/repo".
@@ -134,5 +160,16 @@ mod tests {
         assert_eq!(parse_github_repo("github.com/a/b.git").as_deref(), Some("a/b"));
         assert_eq!(parse_github_repo("nope"), None);
         assert_eq!(parse_github_repo("https://gitlab.com/a/b"), None);
+    }
+
+    #[test]
+    fn bundle_release_names_every_folder_version() {
+        let v = |s: &[&str]| s.iter().map(|x| x.to_string()).collect::<Vec<_>>();
+        assert!(names_every_version("Questie-v12.1.0+v1.0.6", &v(&["12.1.0", "1.0.6"])));
+        assert!(!names_every_version("Questie-v12.1.0+v1.0.6", &v(&["12.0.4", "1.0.6"])), "old Questie, same database");
+        assert!(!names_every_version("1.2.3", &v(&["1.2"])));
+        assert!(!names_every_version("v11.2.3", &v(&["1.2.3"])));
+        assert!(names_every_version("Leatrix_Plus-1.60.20-forever", &v(&["1.60.20"])));
+        assert!(!names_every_version("anything", &[]));
     }
 }

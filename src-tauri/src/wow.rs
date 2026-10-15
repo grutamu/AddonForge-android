@@ -326,6 +326,23 @@ pub fn scan_addons(install: &Path) -> Vec<AddonFolder> {
         if !any {
             continue; // not an addon folder
         }
+        // The TOC we read has no Version (Questie.toc): its flavour siblings
+        // come from the same release and usually do.
+        if af.version.is_none() {
+            if let Ok(inner) = fs::read_dir(&p) {
+                for f in inner.flatten() {
+                    if !f.file_name().to_string_lossy().to_ascii_lowercase().ends_with(".toc") {
+                        continue;
+                    }
+                    let mut other = AddonFolder::default();
+                    parse_toc(&f.path(), &mut other);
+                    if let Some(v) = other.version.filter(|v| !v.is_empty() && !v.starts_with('@')) {
+                        af.version = Some(v);
+                        break;
+                    }
+                }
+            }
+        }
         if af.title.is_empty() {
             af.title = name.clone();
         }

@@ -1,18 +1,12 @@
 # Contributing
 
-## Adding an addon, or getting one featured
-
-The catalogue (`catalog/forever.json`) and the download counts (`catalog/stats.json`) are maintained by the original [AddonForge](https://github.com/Topher121/AddonForge) project, and this app reads them from there. To list an addon or ask for it to be featured, follow [their contributing guide](https://github.com/Topher121/AddonForge/blob/main/CONTRIBUTING.md). Featuring is free there too.
-
-The copy in this repo's `catalog/` is only the offline fallback built into the APK. It is refreshed from upstream before releases (`git checkout upstream/main -- catalog/`), so please don't send catalogue changes here.
-
 ## Bugs
 
 Use **Settings → Report a problem → Report on GitHub** in the app, or [open an issue](https://github.com/grutamu/AddonForge-android/issues). The diagnostics report helps a lot.
 
 ## Code changes
 
-Rust core in `src-tauri/`, plain HTML/JS/CSS in `ui/` (no bundler, no framework). Keep the promises in the README: no accounts, no ads, no analytics, no server of ours in the loop, no CurseForge API key in the app, and nothing outside `Interface/AddOns` changed.
+Rust core in `src-tauri/`, plain HTML/JS/CSS in `ui/` (no bundler, no framework). Keep the promises in the README: no accounts, no ads, no analytics, and nothing outside `Interface/AddOns` changed.
 
 ### Build
 
