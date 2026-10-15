@@ -110,12 +110,16 @@
     const r = cur.getBoundingClientRect();
     const cx = r.left + r.width / 2, cy = r.top + r.height / 2;
     const gap = (a1, a2, b1, b2) => Math.max(0, a1 - b2, b1 - a2);
+    const vertical = dir === "UP" || dir === "DOWN";
+    // Up and down inside the side pane stay in it (its text is read by
+    // scrolling, not by jumping to the list); Left and Back leave it.
+    const pane = $("pane");
+    const inPane = vertical && scope() === body && pane.contains(cur);
     let best = null, bestScore = Infinity;
     for (const el of candidates()) {
-      if (el === cur) continue;
+      if (el === cur || (inPane && !pane.contains(el))) continue;
       const c = el.getBoundingClientRect();
       const ex = c.left + c.width / 2, ey = c.top + c.height / 2;
-      const vertical = dir === "UP" || dir === "DOWN";
       let along;
       if (cur.contains(el) || el.contains(cur)) {
         along = { UP: cy - ey, DOWN: ey - cy, LEFT: cx - ex, RIGHT: ex - cx }[dir];
@@ -128,6 +132,15 @@
       const side = vertical ? gap(c.left, c.right, r.left, r.right) : gap(c.top, c.bottom, r.top, r.bottom);
       const score = along + side * 4 + (vertical ? Math.abs(ex - cx) * 0.05 : Math.abs(ey - cy) * 0.05);
       if (score < bestScore) { best = el; bestScore = score; }
+    }
+    if (inPane) {
+      // The next button is out of sight (or there is none): scroll the text
+      // towards it first, a step at a time, while there is more to scroll.
+      const pr = pane.getBoundingClientRect();
+      const b = best?.getBoundingClientRect();
+      const inView = b && b.bottom > pr.top && b.top < pr.bottom;
+      const more = dir === "UP" ? pane.scrollTop > 0 : pane.scrollTop + pane.clientHeight < pane.scrollHeight - 1;
+      if (!inView && more) return pane.scrollBy({ top: (dir === "UP" ? -1 : 1) * Math.round(pane.clientHeight * 0.6), behavior: "smooth" });
     }
     if (best) focus(best);
   }
