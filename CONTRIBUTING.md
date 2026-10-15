@@ -1,10 +1,8 @@
 # Contributing
 
-## Adding an addon, or getting one featured
+## Adding an addon
 
-The catalogue (`catalog/forever.json`) and the download counts (`catalog/stats.json`) are maintained by the original [AddonForge](https://github.com/Topher121/AddonForge) project, and this app reads them from there. To list an addon or ask for it to be featured, follow [their contributing guide](https://github.com/Topher121/AddonForge/blob/main/CONTRIBUTING.md). Featuring is free there too.
-
-The copy in this repo's `catalog/` is only the offline fallback built into the APK. It is refreshed from upstream before releases (`git checkout upstream/main -- catalog/`), so please don't send catalogue changes here.
+The catalogue comes from [instawow's public list](https://github.com/layday/instawow-data) of addons CurseForge tags for World of Warcraft: Forever, refreshed daily, so an addon shows up once its author publishes a Forever build on CurseForge. Only the starter packs live here, in `catalog/packs.json`.
 
 ## Bugs
 

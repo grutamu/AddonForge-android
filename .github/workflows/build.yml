@@ -5,12 +5,10 @@ name: Build and test
 on:
   pull_request:
     paths-ignore:
-      - "catalog/**"
       - "**.md"
   push:
     branches: [android]
     paths-ignore:
-      - "catalog/**"
       - "**.md"
 
 jobs:
