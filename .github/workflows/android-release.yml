@@ -7,7 +7,7 @@ name: Android release
 # both read these releases (one .apk asset each).
 on:
   push:
-    tags: ["android-v*"]
+    tags: ["android-20*"]
   workflow_dispatch:
     inputs:
       tag:
