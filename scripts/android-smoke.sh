@@ -32,9 +32,9 @@ shot 1-launch
 pad DPAD_DOWN; pad DPAD_DOWN; pad BUTTON_A 1.5   # open the second addon in the pane
 alive "opening an addon"; shot 2-details
 pad BUTTON_B                                      # close it
-for tab in 3-find 4-packs 5-settings; do pad BUTTON_R1 1.5; alive "$tab"; shot "$tab"; done
+for tab in 3-find 4-settings; do pad BUTTON_R1 1.5; alive "$tab"; shot "$tab"; done
 pad BUTTON_R1 1; pad BUTTON_Y 1; pad BUTTON_B; pad BUTTON_B   # back to My addons, search, back out
-alive "search and back"; shot 6-back-home
+alive "search and back"; shot 5-back-home
 
 if adb logcat -d -b crash | grep -q "$pkg"; then
   echo "FAIL: crash logged" >&2; adb logcat -d -b crash | tail -30 >&2; exit 1

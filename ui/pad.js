@@ -11,7 +11,7 @@
     root.querySelectorAll(".item").forEach((el) => { el.tabIndex = 0; el.setAttribute("role", "button"); });
     root.querySelectorAll(".addon-detail, .c-src a").forEach((el) => { el.tabIndex = -1; });
   }
-  for (const id of ["installed-list", "browse-list", "bundle-list"]) {
+  for (const id of ["installed-list", "browse-list"]) {
     const list = $(id);
     new MutationObserver(() => {
       prepare(list);
@@ -32,33 +32,9 @@
   }
 
   // ------------------------------------------------------------ gamepad
-  const LAYOUT_KEY = "af-pad-layout";
-  const layout = () => localStorage.getItem(LAYOUT_KEY) || "nintendo";
-  // Nintendo: A confirms, B goes back, X (top) = main action, Y = search.
-  // Xbox swaps both pairs.
-  function role(name) {
-    const swap = layout() === "xbox";
-    const map = { A: swap ? "back" : "confirm", B: swap ? "confirm" : "back", X: swap ? "search" : "primary", Y: swap ? "primary" : "search" };
-    return map[name] || name;
-  }
-  function glyphs() {
-    const swap = layout() === "xbox";
-    body.style.setProperty("--g-confirm", `"${swap ? "B" : "A"}"`);
-    body.style.setProperty("--g-back", `"${swap ? "A" : "B"}"`);
-    body.style.setProperty("--g-primary", `"${swap ? "Y" : "X"}"`);
-    document.querySelectorAll(".pad-layout").forEach((b) => {
-      b.classList.toggle("active", b.dataset.layout === layout());
-      b.setAttribute("aria-checked", b.dataset.layout === layout());
-    });
-  }
-  document.querySelector(".pad-layouts").addEventListener("click", (e) => {
-    const b = e.target.closest(".pad-layout");
-    if (!b) return;
-    localStorage.setItem(LAYOUT_KEY, b.dataset.layout);
-    glyphs();
-    toast(`${b.firstChild.textContent} layout: ${role("A") === "confirm" ? "A" : "B"} confirms`);
-  });
-  glyphs();
+  // Buttons as Android names them (the OS / firmware owns the layout): A
+  // confirms, B goes back, X (top) = main action, Y = search.
+  const ROLE = { A: "confirm", B: "back", X: "primary", Y: "search" };
 
   const FOCUSABLE = 'button, a[href], a[data-url], input:not([type=hidden]), select, summary, [tabindex="0"]';
   const open = (id) => !$(id).classList.contains("hidden");
@@ -94,7 +70,7 @@
     const s = scope();
     if (s !== body) return focus(candidates()[0]);
     const panel = document.querySelector(".panel.active");
-    const pick = panel.querySelector(".item.selected") || panel.querySelector(".item[tabindex], .bundle .chip") || candidates().find((el) => panel.contains(el));
+    const pick = panel.querySelector(".item.selected") || panel.querySelector(".item[tabindex]") || candidates().find((el) => panel.contains(el));
     focus(pick || candidates()[0]);
   }
 
@@ -191,8 +167,8 @@
   // Re-renders replace the focused row: find the same row / button again.
   let lastFocus = null;
   function remember(el) {
-    const row = el.closest("[data-key], [data-id], [data-bundle]");
-    lastFocus = el.id ? { id: el.id } : row ? { row: row.dataset.key || row.dataset.id || row.dataset.bundle, act: el.dataset.act || el.dataset.detail || "", self: el === row } : null;
+    const row = el.closest("[data-key], [data-id]");
+    lastFocus = el.id ? { id: el.id } : row ? { row: row.dataset.key || row.dataset.id, act: el.dataset.act || el.dataset.detail || "", self: el === row } : null;
   }
   document.addEventListener("focusin", (e) => remember(e.target));
   document.addEventListener("pointerdown", () => { wanted = null; lastPointer = Date.now(); }, true);
@@ -200,7 +176,7 @@
     if (!body.classList.contains("pad-used") || current() || !lastFocus) return;
     let el = lastFocus.id && $(lastFocus.id);
     if (!el && lastFocus.row) {
-      const row = [...document.querySelectorAll(".panel.active [data-key], .panel.active [data-id], .panel.active [data-bundle]")].find((r) => (r.dataset.key || r.dataset.id || r.dataset.bundle) === lastFocus.row);
+      const row = [...document.querySelectorAll(".panel.active [data-key], .panel.active [data-id]")].find((r) => (r.dataset.key || r.dataset.id) === lastFocus.row);
       if (row) el = (!lastFocus.self && lastFocus.act && row.querySelector(`[data-act="${lastFocus.act}"], [data-detail="${lastFocus.act}"]`)) || row;
     }
     if (el && shown(el) && !el.disabled) el.focus({ preventScroll: true });
@@ -224,11 +200,7 @@
     if (open("modal")) return $("modal-yes").click();
     const tab = body.dataset.tab;
     if (tab === "installed" && !$("btn-update-all").disabled) return $("btn-update-all").click();
-    if ((tab === "browse" || tab === "start") && detailId && shown($("detail-install"))) return $("detail-install").click();
-    if (tab === "start") {
-      const b = current()?.closest(".bundle")?.querySelector("[data-act=bundle]:not([disabled])") || document.querySelector("#bundle-list [data-act=bundle]:not([disabled])");
-      b?.click();
-    }
+    if (tab === "browse" && detailId && shown($("detail-install"))) return $("detail-install").click();
   }
 
   function search() {
@@ -258,11 +230,9 @@
     A?.exit();
   }
 
-  const LABEL = { confirm: "Confirm", back: "Back", primary: "Main action", search: "Search", L1: "Previous tab", R1: "Next tab", START: "Check for updates" };
   window.afPad = (name) => {
     if (name !== "BACK") body.classList.add("pad-used");
-    const r = role(name);
-    if ($("pad-test") && body.dataset.tab === "settings") $("pad-test").textContent = `${name} \u2192 ${LABEL[r] || (name.length < 6 ? "Move " + name.toLowerCase() : "nothing")}`;
+    const r = ROLE[name];
     if (["UP", "DOWN", "LEFT", "RIGHT"].includes(name)) return move(name);
     if (name === "BACK" || r === "back") return back();
     if (r === "confirm") return confirm();

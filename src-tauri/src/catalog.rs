@@ -1,6 +1,6 @@
 //! The addon catalogue. Prototype: built from instawow's daily catalogue
 //! (github.com/layday/instawow-data), filtered to what CurseForge tags as
-//! Forever, plus the starter packs in `catalog/packs.json`.
+//! Forever.
 //!
 //! It is a *pointer list*, not a host: every entry says where the author
 //! publishes releases. Downloads always come straight from that source.
@@ -12,7 +12,6 @@ use std::collections::{HashMap, HashSet};
 use std::time::Duration;
 
 pub const REMOTE_URL: &str = "https://raw.githubusercontent.com/layday/instawow-data/data/base-catalogue-v8.compact.json";
-pub const PACKS: &str = include_str!("../../catalog/packs.json");
 const MAX_AGE: Duration = Duration::from_secs(24 * 3600);
 
 #[derive(Serialize, Deserialize, Clone, Debug, Default)]
@@ -61,21 +60,6 @@ pub struct CatalogEntry {
     pub added: Option<String>,
 }
 
-/// A hand-picked set of addons shown as "Starter picks" in Browse.
-#[derive(Serialize, Deserialize, Clone, Debug, Default)]
-pub struct Bundle {
-    pub id: String,
-    pub name: String,
-    #[serde(default)]
-    pub desc: String,
-    /// Catalogue ids, in display order.
-    #[serde(default)]
-    pub addons: Vec<String>,
-    /// Short plain-English note shown under the bundle (e.g. "pick one boss mod").
-    #[serde(default)]
-    pub note: String,
-}
-
 #[derive(Serialize, Deserialize, Clone, Debug, Default)]
 pub struct Catalog {
     #[serde(default)]
@@ -84,8 +68,6 @@ pub struct Catalog {
     pub updated: String,
     #[serde(default)]
     pub addons: Vec<CatalogEntry>,
-    #[serde(default)]
-    pub bundles: Vec<Bundle>,
     /// Downloads and last update per entry id, from the same source.
     #[serde(default)]
     pub stats: Stats,
@@ -109,19 +91,6 @@ pub struct Stats {
     pub updated: String,
     #[serde(default)]
     pub entries: std::collections::HashMap<String, StatEntry>,
-}
-
-/// `catalog/packs.json`: the starter packs, one-line descriptions for the
-/// pack addons (instawow's list has none), and the few pack addons that
-/// aren't on CurseForge (so not in instawow's list).
-#[derive(Deserialize, Default)]
-struct Packs {
-    #[serde(default)]
-    about: HashMap<String, String>,
-    #[serde(default)]
-    extra: Vec<CatalogEntry>,
-    #[serde(default)]
-    bundles: Vec<Bundle>,
 }
 
 #[derive(Deserialize)]
@@ -228,39 +197,22 @@ async fn fetch(client: &reqwest::Client) -> anyhow::Result<Catalog> {
     Ok(cat)
 }
 
-/// Add the packs, their descriptions and their extra entries.
-fn with_packs(mut cat: Catalog) -> Catalog {
-    let packs: Packs = serde_json::from_str(PACKS).unwrap_or_default();
-    for e in cat.addons.iter_mut().filter(|e| e.desc.is_empty()) {
-        if let Some(d) = packs.about.get(&e.id) {
-            e.desc = d.clone();
-        }
-    }
-    for e in packs.extra {
-        if !cat.addons.iter().any(|x| x.id == e.id) {
-            cat.addons.push(e);
-        }
-    }
-    cat.bundles = packs.bundles;
-    cat
-}
-
 /// Today's cached copy, else a fresh download, else an older cached copy;
-/// with no copy at all, only the pack extras.
+/// with no copy at all, an empty catalogue.
 pub async fn load(client: &reqwest::Client, refresh: bool) -> (Catalog, &'static str) {
     let cached = read_cache();
     if let Some((c, true)) = &cached {
         if !refresh {
-            return (with_packs(c.clone()), "cached");
+            return (c.clone(), "cached");
         }
     }
     match fetch(client).await {
-        Ok(c) => (with_packs(c), "remote"),
+        Ok(c) => (c, "remote"),
         Err(e) => {
             crate::loge!("catalogue download: {e}");
             match cached {
-                Some((c, _)) => (with_packs(c), "cached (old)"),
-                None => (with_packs(Catalog::default()), "packs only"),
+                Some((c, _)) => (c, "cached (old)"),
+                None => (Catalog::default(), "unavailable"),
             }
         }
     }
@@ -289,14 +241,5 @@ mod tests {
         assert_eq!(cat.addons[0].github, None, "two repos claim it: no GitHub link");
         assert_eq!(cat.stats.entries["curse-61284"].downloads, Some(5));
         assert_eq!(cat.updated, "2026-10-14");
-    }
-
-    #[test]
-    fn packs_file_parses_and_its_extras_are_installable() {
-        let p: Packs = serde_json::from_str(PACKS).expect("catalog/packs.json");
-        assert!(!p.bundles.is_empty());
-        for e in &p.extra {
-            assert!(e.github.is_some() || e.wago.is_some() || e.wowi.is_some() || e.tukui.is_some(), "{}", e.id);
-        }
     }
 }

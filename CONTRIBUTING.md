@@ -1,16 +1,12 @@
 # Contributing
 
-## Adding an addon
-
-The catalogue comes from [instawow's public list](https://github.com/layday/instawow-data) of addons CurseForge tags for World of Warcraft: Forever, refreshed daily, so an addon shows up once its author publishes a Forever build on CurseForge. Only the starter packs live here, in `catalog/packs.json`.
-
 ## Bugs
 
 Use **Settings → Report a problem → Report on GitHub** in the app, or [open an issue](https://github.com/grutamu/AddonForge-android/issues). The diagnostics report helps a lot.
 
 ## Code changes
 
-Rust core in `src-tauri/`, plain HTML/JS/CSS in `ui/` (no bundler, no framework). Keep the promises in the README: no accounts, no ads, no analytics, no server of ours in the loop, no CurseForge API key in the app, and nothing outside `Interface/AddOns` changed.
+Rust core in `src-tauri/`, plain HTML/JS/CSS in `ui/` (no bundler, no framework). Keep the promises in the README: no accounts, no ads, no analytics, and nothing outside `Interface/AddOns` changed.
 
 ### Build
 

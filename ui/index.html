@@ -16,7 +16,6 @@
   <nav class="tabs" aria-label="Main navigation">
     <button class="tab active" data-tab="installed" aria-current="page">My addons<span id="rail-badge" class="rail-badge hidden"></span></button>
     <button class="tab" data-tab="browse">Find addons</button>
-    <button class="tab" data-tab="start">Starter packs</button>
     <button class="tab" data-tab="settings">Settings</button>
   </nav>
 
@@ -55,11 +54,6 @@
     </div>
     <div id="browse-list" class="list"></div>
     <p class="hint">The catalogue is instawow's public list of addons CurseForge tags for Forever (<a href="#" data-url="https://github.com/layday/instawow-data">layday/instawow-data</a>), refreshed daily. Addons with a GitHub repo install from GitHub; the rest need the unofficial CurseForge switch in Settings.</p>
-  </section>
-
-  <section id="tab-start" class="panel">
-    <div class="section-title">Starter packs <span class="hint inline">Hand-picked sets. Install a whole pack, or select an addon to read about it.</span></div>
-    <div id="bundle-list" class="bundles"></div>
   </section>
 
   <section id="tab-settings" class="panel prefs">
@@ -121,17 +115,6 @@
         </div>
         <p class="hint">Builds a report with your version, install folder, addon list and the last few log lines. Nothing is sent until you press send, and you can read it first.</p>
         <pre id="diag" class="diag hidden"></pre>
-      </div>
-    </div>
-
-    <div class="pref">
-      <div class="pref-label">Controller</div>
-      <div class="pref-body">
-        <div class="row pad-layouts" role="radiogroup" aria-label="Button layout">
-          <button class="btn pad-layout" data-layout="nintendo" role="radio">Nintendo<span>A confirms · B goes back</span></button>
-          <button class="btn pad-layout" data-layout="xbox" role="radio">Xbox<span>B confirms · A goes back</span></button>
-        </div>
-        <p class="hint">Match the buttons printed on your controller. Press any button to test: <b id="pad-test">nothing pressed yet</b></p>
       </div>
     </div>
 
@@ -198,19 +181,6 @@
         </div>
         <button id="btn-catalog-refresh" class="btn">Refresh catalogue</button>
       </div>
-    </div>
-    <div class="pane-home-start">
-      <details class="guide" id="guide" open>
-        <summary>New to addons? Start here</summary>
-        <div class="guide-body">
-          <p><b>What an addon is.</b> A small folder of text files (Lua and XML) that WoW loads when you log in. Addons can change how the interface looks and add helpers like boss timers or a better bag window. They cannot play the game for you, and on Forever a lot of combat information is deliberately hidden from them.</p>
-          <p><b>Where they live.</b> Inside your WoW folder, under <code>Interface/AddOns</code>. Each addon is one or more folders in there. That is the only place AddonForge writes to. Your settings for each addon are kept separately in the <code>WTF</code> folder, which AddonForge never touches, so removing or updating an addon does not lose its settings.</p>
-          <p><b>Turning them on.</b> Install from here, then start WoW from your launcher. On the character-select screen there is an <b>AddOns</b> button in the corner: tick the ones you want and untick any you don't. Already in game? Type <code>/reload</code> in chat (the launcher's keyboard has <code>/</code>) to load them.</p>
-          <p><b>"Forever" builds.</b> Forever uses a newer interface than Classic Era, so addons need a version made for it. AddonForge tells you which ones have one. An addon marked "not for Forever" may still load but can error or show nothing.</p>
-          <p><b>Updates.</b> Open AddonForge now and then, or leave it to check when it starts. Authors publish a new version, you press Update, done. Pin an addon if you want to hold it at a version you like.</p>
-          <p><b>Beta note.</b> The Forever beta has a bug where addon settings sometimes don't load on the next login. That is the game, not the addon. Some people use an addon called SVShim as a workaround until Blizzard fixes it; it is linked from the catalogue, and AddonForge will tell you when it is time to remove it.</p>
-        </div>
-      </details>
     </div>
   </div>
 </aside>

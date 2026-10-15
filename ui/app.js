@@ -18,7 +18,6 @@ let activeFilter = "all";
 let sortMode = "downloads";
 // Thousands of catalogue entries: draw the first few hundred, search finds the rest.
 const BROWSE_MAX = 200;
-let bundles = [];
 const icons = new Map(); // "p:<package key>" / "c:<catalogue id>" -> data URL, or null when there is none
 const needsAttention = (p) => p.status === "error" || p.status === "no-key" || p.status === "no-source" || p.missing_deps.length > 0 || !p.supports_forever;
 
@@ -149,7 +148,7 @@ document.querySelectorAll(".tab").forEach((btn) =>
     });
     document.querySelectorAll(".panel").forEach((p) => p.classList.toggle("active", p.id === "tab-" + btn.dataset.tab));
     document.querySelector("main").scrollTop = 0;
-    if ((btn.dataset.tab === "browse" || btn.dataset.tab === "start") && !catalog.length) loadCatalog(false);
+    if (btn.dataset.tab === "browse" && !catalog.length) loadCatalog(false);
     if (btn.dataset.tab === "settings") loadSettings();
   })
 );
@@ -191,7 +190,7 @@ function renderInstalled() {
   const eligible = packages.filter((p) => p.status === "update" && !p.pinned && !p.ignored).length;
   $("btn-update-all").textContent = eligible ? `Update all (${eligible})` : "Update all";
   if (!packages.length) {
-    list.innerHTML = `<div class="empty"><strong>No addons found</strong>Nothing in this installation's AddOns folder yet.<br><button class="btn" data-navigate="start">Discover addons</button></div>`;
+    list.innerHTML = `<div class="empty"><strong>No addons found</strong>Nothing in this installation's AddOns folder yet.<br><button class="btn" data-navigate="browse">Discover addons</button></div>`;
     $("summary").textContent = "";
     setBusy(busy);
     return;
@@ -398,7 +397,6 @@ async function rescan(keepStatus = false) {
     packages = fresh;
     renderInstalled();
     loadIcons("p", packages.map((p) => p.key));
-    if (!packages.length) $("guide").open = true; // nothing installed yet: probably new to this
   } catch (err) {
     packages = [];
     renderInstalled();
@@ -489,7 +487,6 @@ async function loadCatalog(refresh) {
   try {
     catalog = await invoke("catalog_list", { refresh });
     renderCatalog();
-    loadBundles();
   } catch (err) {
     toast(String(err), true);
   } finally {
@@ -622,77 +619,7 @@ $("detail-install").onclick = async () => {
   if (!e || busy) return;
   closeDetail();
   await installCatalog(e, false);
-  renderBundles();
 };
-
-// ---------------------------------------------------------------- starter packs
-async function loadBundles() {
-  try {
-    bundles = (await invoke("bundles")) || [];
-  } catch (_) {
-    bundles = [];
-  }
-  renderBundles();
-}
-
-function renderBundles() {
-  const box = $("bundle-list");
-  if (!bundles.length) {
-    box.innerHTML = "";
-    return;
-  }
-  box.innerHTML = bundles
-    .map((b) => {
-      const todo = b.addons.filter((a) => a.installable && !a.installed);
-      const chips = b.addons
-        .map((a) => {
-          const state = a.installed ? "have" : a.installable ? "todo" : a.needs_key ? "key" : "link";
-          const tip = a.installed ? "Installed" : a.installable ? a.desc : a.needs_key ? "Needs a Wago key (Settings)" : "Link only, not installable from here";
-          return `<button class="chip ${state}" data-detail="${esc(a.id)}" title="${esc(tip)}">${iconTile("c", a.id, a.name)}${esc(a.name)}${a.installed ? " \u2713" : ""}</button>`;
-        })
-        .join("");
-      const label = todo.length ? `Install all (${todo.length})` : b.addons.some((a) => a.installed) ? "Installed" : "Nothing to install";
-      return `<div class="bundle" data-bundle="${esc(b.id)}">
-        <div class="bundle-head"><span class="bundle-name">${esc(b.name)}</span><span class="grow"></span>
-          <button class="btn small ${todo.length ? "primary" : ""}" data-act="bundle" ${todo.length ? "" : "disabled"}>${label}</button></div>
-        <div class="bundle-desc">${esc(b.desc)}</div>
-        <div class="chips">${chips}</div>
-        ${b.note ? `<div class="bundle-note">${esc(b.note)}</div>` : ""}
-      </div>`;
-    })
-    .join("");
-  setBusy(busy);
-}
-
-$("bundle-list").addEventListener("click", async (e) => {
-  const d = e.target.closest("[data-detail]");
-  if (d) return openDetail(d.dataset.detail);
-  const btn = e.target.closest("button[data-act=bundle]");
-  if (!btn || busy) return;
-  const b = bundles.find((x) => x.id === btn.closest(".bundle").dataset.bundle);
-  if (!b) return;
-  const todo = b.addons.filter((a) => a.installable && !a.installed);
-  setBusy(true);
-  let done = 0;
-  const skipped = [];
-  for (const a of todo) {
-    btn.innerHTML = `<span class="spinner"></span> ${done + skipped.length + 1} / ${todo.length}: ${esc(a.name)}`;
-    try {
-      await invoke("install_catalog", { id: a.id, allowNonForever: false });
-      a.installed = true;
-      const row = catalog.find((c) => c.id === a.id);
-      if (row) row.installed = true;
-      done++;
-    } catch (err) {
-      skipped.push(String(err) === "NOT_FOREVER" ? `${a.name} (no Forever build)` : `${a.name}: ${explainError(err)}`);
-    }
-  }
-  setBusy(false);
-  toast(skipped.length ? `Installed ${done} of ${todo.length}. Skipped ${skipped.join("; ")}` : `Installed ${done} addon${done === 1 ? "" : "s"} from ${b.name}`, skipped.length > 0);
-  renderBundles();
-  renderCatalog();
-  await rescan(true);
-});
 $("btn-catalog-refresh").onclick = () => loadCatalog(true);
 $("browse-list").addEventListener("click", async (e) => {
   const row = e.target.closest(".item[data-id]");
@@ -711,8 +638,6 @@ async function installCatalog(entry, allowNonForever) {
     const p = await invoke("install_catalog", { id: entry.id, allowNonForever });
     toast(`Installed ${p.name} ${p.installed_version || ""}`);
     entry.installed = true;
-    for (const b of bundles) for (const a of b.addons) if (a.id === entry.id) a.installed = true;
-    renderBundles();
     renderCatalog();
     await rescan(true);
   } catch (err) {
@@ -781,7 +706,7 @@ async function loadSettings() {
   $("pref-prerelease").checked = !!settings.allow_prerelease;
   $("pref-curse").checked = !!settings.curse_unofficial;
   $("catalog-info").textContent = settings.catalog_count
-    ? `${settings.catalog_count} addons · ${{ remote: "downloaded from instawow's list", cached: "today's copy of instawow's list", "cached (old)": "older copy (instawow's list unreachable)", "packs only": "starter packs only (instawow's list unreachable)" }[settings.catalog_source] || settings.catalog_source}${settings.catalog_updated ? " · " + settings.catalog_updated : ""}`
+    ? `${settings.catalog_count} addons · ${{ remote: "downloaded from instawow's list", cached: "today's copy of instawow's list", "cached (old)": "older copy (instawow's list unreachable)" }[settings.catalog_source] || settings.catalog_source}${settings.catalog_updated ? " · " + settings.catalog_updated : ""}`
     : "not loaded yet";
 }
 
@@ -898,7 +823,6 @@ $("pref-curse").addEventListener("change", async (e) => {
     toast(e.target.checked ? "CurseForge-only addons can be installed now (unofficial)" : "CurseForge-only addons are link-only again");
     await loadSettings();
     renderCatalog();
-    await loadBundles();
     await rescan();
   } catch (err) {
     toast(String(err), true);
@@ -1033,7 +957,6 @@ $("selfupdate-go").onclick = () => selfUpdate?.latest?.url && openUrl(selfUpdate
   loadCatalog(false);
   checkSelf(false);
   if (settings?.start_tab?.startsWith("detail:")) { await loadCatalog(false); document.querySelector(`.tab[data-tab="browse"]`)?.click(); openDetail(settings.start_tab.slice(7)); }
-  else if (settings?.start_tab === "guide") { document.querySelector(`.tab[data-tab="start"]`)?.click(); $("guide").open = true; }
   else if (settings?.start_tab) document.querySelector(`.tab[data-tab="${settings.start_tab}"]`)?.click();
   // One-time note on the first launch after an update.
   invoke("whats_new")

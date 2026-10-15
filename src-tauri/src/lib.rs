@@ -851,66 +851,6 @@ async fn catalog_list(app: State<'_, Shared>, refresh: Option<bool>) -> Result<V
         .collect())
 }
 
-#[derive(Serialize, Clone)]
-struct BundleAddon {
-    id: String,
-    name: String,
-    desc: String,
-    installable: bool,
-    needs_key: bool,
-    installed: bool,
-    forever: Option<bool>,
-}
-
-#[derive(Serialize, Clone)]
-struct BundleView {
-    id: String,
-    name: String,
-    desc: String,
-    note: String,
-    addons: Vec<BundleAddon>,
-}
-
-#[tauri::command]
-async fn bundles(app: State<'_, Shared>) -> Result<Vec<BundleView>, String> {
-    let cat = catalog_cached(&app).await;
-    let (has_wago, curse) = {
-        let st = app.state.lock().await;
-        (st.has_wago_key(), st.curse_unofficial)
-    };
-    let installed_keys: Vec<String> = match scan_packages(&app).await {
-        Ok(p) => p.into_iter().map(|p| p.key).collect(),
-        Err(_) => Vec::new(),
-    };
-    Ok(cat
-        .bundles
-        .iter()
-        .map(|b| BundleView {
-            id: b.id.clone(),
-            name: b.name.clone(),
-            desc: b.desc.clone(),
-            note: b.note.clone(),
-            addons: b
-                .addons
-                .iter()
-                .filter_map(|id| cat.addons.iter().find(|e| &e.id == id))
-                .map(|e| {
-                    let direct = e.github.is_some() || e.wowi.is_some() || e.tukui.is_some() || (curse && e.curse.is_some());
-                    BundleAddon {
-                        id: e.id.clone(),
-                        name: e.name.clone(),
-                        desc: e.desc.clone(),
-                        installable: direct || (e.wago.is_some() && has_wago),
-                        needs_key: !direct && e.wago.is_some() && !has_wago,
-                        installed: installed_keys.contains(&format!("cat:{}", e.id)),
-                        forever: e.forever,
-                    }
-                })
-                .collect(),
-        })
-        .collect())
-}
-
 /// Icons for installed packages: the addon's own icon file, else none.
 #[tauri::command]
 async fn package_icons(app: State<'_, Shared>, keys: Vec<String>) -> Result<HashMap<String, String>, String> {
@@ -1261,7 +1201,6 @@ pub fn run() {
             check_updates,
             update_package,
             catalog_list,
-            bundles,
             package_icons,
             addon_details,
             install_catalog,

@@ -31,21 +31,18 @@ That's it: your addons show up under **My addons**, and AddonForge checks them f
 |---|---|
 | **My addons** | Everything in your AddOns folder, with what needs updating. **Update all** updates everything at once. Select an addon to pin it to its current version, hide it, reinstall or remove it. |
 | **Find addons** | The catalogue of addons that work on Forever. Search, sort by popularity, read about an addon and install it. You can also install from any GitHub link. |
-| **Starter packs** | New to addons? Hand-picked sets (a good start, levelling, dungeons and raids, bags, chat…) you can install in one go, and a short guide to how addons work. |
-| **Settings** | Game folder, your optional Wago key, controller layout, sharing your addon list, reporting a problem. |
-
-![Starter packs, with the guide for new players on the right](docs/screenshots/starter-packs.png)
+| **Settings** | Game folder, your optional Wago key, sharing your addon list, reporting a problem. |
 
 ### Controller
 
-The default is the Nintendo layout printed on the Thor. If your controller says otherwise, switch to Xbox in **Settings → Controller** (it swaps A/B and X/Y); the same screen shows which button you just pressed.
+Buttons follow the layout Android reports for your controller; if A and B feel swapped, change it in your device's controller settings.
 
 | Button | Does |
 |---|---|
 | D-pad / left stick | Move around |
 | **A** | Select, press |
 | **B** | Back: closes a dialog, then the details, then goes to My addons, then leaves the app |
-| **X** | The main action on the screen: Update all, Install, Install pack |
+| **X** | The main action on the screen: Update all, Install |
 | **Y** | Search |
 | **L / R** | Previous / next tab |
 | **+** | Check for updates (on My addons) |
@@ -56,7 +53,7 @@ The default is the Nintendo layout printed on the Thor. If your controller says 
 
 Start WoW from your launcher. On the character-select screen there is an **AddOns** button in the corner: tick the ones you want. Already in game? Type `/reload` in chat (the launcher's keyboard has `/`).
 
-![Settings: share or import your addon list, report a problem, pick your controller layout](docs/screenshots/settings.png)
+![Settings: share or import your addon list, report a problem](docs/screenshots/settings.png)
 
 ## Questions
 
@@ -80,7 +77,7 @@ In the app: **Settings → Report a problem → Report on GitHub**. It opens a n
 
 ## Where addons come from
 
-AddonForge reads your `Interface/AddOns` folder and each addon's `.toc` file to work out where it was published. On top of that there is a **catalogue**: [instawow's public list](https://github.com/layday/instawow-data) of addons CurseForge tags for Forever, plus the starter packs in this repo. Downloads always come straight from where the author publishes, never from a copy.
+AddonForge reads your `Interface/AddOns` folder and each addon's `.toc` file to work out where it was published. On top of that there is a **catalogue**: [instawow's public list](https://github.com/layday/instawow-data) of addons CurseForge tags for Forever. Downloads always come straight from where the author publishes, never from a copy.
 
 | Source | Key needed? | Notes |
 |---|---|---|
