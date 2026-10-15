@@ -1,4 +1,4 @@
-//! The addon catalogue. Prototype: built from instawow's daily catalogue
+//! The addon catalogue: built from instawow's daily catalogue
 //! (github.com/layday/instawow-data), filtered to what CurseForge tags as
 //! Forever.
 //!

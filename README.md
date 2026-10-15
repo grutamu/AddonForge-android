@@ -97,4 +97,6 @@ Developers: see [CONTRIBUTING.md](CONTRIBUTING.md) for building the APK and runn
 
 Based on [AddonForge](https://github.com/Topher121/AddonForge) by Pocket Forge Studios, MIT licensed. The original copyright notice is kept in [LICENSE](LICENSE).
 
+The addon catalogue is built from [instawow](https://github.com/layday/instawow)'s public addon list ([layday/instawow-data](https://github.com/layday/instawow-data)) by layday. Thank you. AddonForge isn't affiliated with instawow; it reads that list as published and converts it on your device.
+
 AddonForge is an independent project. It is not affiliated with, endorsed by or connected to CurseForge, Overwolf, Blizzard Entertainment, Wago, WoWInterface or TukUI. World of Warcraft is a trademark of Blizzard Entertainment.
