@@ -14,7 +14,7 @@ pub const FOREVER_TOC_SUFFIXES: &[&str] = &["_Forever", "-Forever", "_Camelot", 
 
 #[derive(Serialize, Clone, Debug)]
 pub struct WowInstall {
-    /// Absolute path of the product folder, e.g. `...\World of Warcraft\_classic_beta_`.
+    /// Absolute path of the product folder, e.g. `/storage/emulated/0/WoW Forever/_classic_beta_`.
     pub path: String,
     /// Product code from `.flavor.info`, e.g. `wow_classic_beta`.
     pub product: String,
@@ -88,16 +88,6 @@ pub fn describe_install(product_dir: &Path) -> Option<WowInstall> {
     })
 }
 
-#[cfg(not(target_os = "android"))]
-const ROOT_PATTERNS: &[&str] = &[
-    "Program Files (x86)\\World of Warcraft",
-    "Program Files\\World of Warcraft",
-    "World of Warcraft",
-    "Games\\World of Warcraft",
-    "Blizzard\\World of Warcraft",
-    "Battle.net\\World of Warcraft",
-];
-
 /// Push every `_*_` product folder directly under `root`.
 fn scan_root(root: &Path, found: &mut Vec<WowInstall>) {
     let Ok(rd) = fs::read_dir(root) else { return };
@@ -112,27 +102,10 @@ fn scan_root(root: &Path, found: &mut Vec<WowInstall>) {
     }
 }
 
-/// Scan the usual places for `World of Warcraft\_*_` product folders.
-#[cfg(not(target_os = "android"))]
-pub fn find_installs() -> Vec<WowInstall> {
-    let mut found = Vec::new();
-    for letter in b'C'..=b'Z' {
-        let drive = format!("{}:\\", letter as char);
-        if !Path::new(&drive).is_dir() {
-            continue;
-        }
-        for pat in ROOT_PATTERNS {
-            scan_root(&PathBuf::from(&drive).join(pat), &mut found);
-        }
-    }
-    sort_installs(found)
-}
-
-/// Android (the wow-forever-android launcher): the game root is any folder
+/// The game root (the wow-forever-android launcher's folder) is any folder
 /// holding `.build.info`, default `/storage/emulated/0/WoW Forever`, often
 /// moved to Download/ or an SD card. Look one level deep in each storage
 /// volume and in its Download folder.
-#[cfg(target_os = "android")]
 pub fn find_installs() -> Vec<WowInstall> {
     let mut volumes = vec![PathBuf::from("/storage/emulated/0")];
     if let Ok(rd) = fs::read_dir("/storage") {
@@ -143,6 +116,10 @@ pub fn find_installs() -> Vec<WowInstall> {
             }
         }
     }
+    find_installs_in(&volumes)
+}
+
+fn find_installs_in(volumes: &[PathBuf]) -> Vec<WowInstall> {
     let mut found = Vec::new();
     for vol in volumes {
         for base in [vol.clone(), vol.join("Download"), vol.join("Downloads"), vol.join("Games")] {
@@ -393,6 +370,28 @@ mod tests {
         std::fs::create_dir_all(root.join("WTF").join("ForeverSVFix")).unwrap();
         assert!(svfix_present(&root));
         let _ = std::fs::remove_dir_all(&root);
+    }
+
+    #[test]
+    fn finds_game_roots_on_a_volume_and_in_download() {
+        let vol = std::env::temp_dir().join(format!("af-vol-{}", std::process::id()));
+        let _ = std::fs::remove_dir_all(&vol);
+        // The launcher's default folder, marked by .build.info.
+        let a = vol.join("WoW Forever").join("_classic_beta_");
+        std::fs::create_dir_all(a.join("Interface").join("AddOns")).unwrap();
+        std::fs::write(vol.join("WoW Forever").join(".build.info"), "").unwrap();
+        std::fs::write(a.join(".flavor.info"), "Product Flavor!STRING:0\nwow_classic_beta\n").unwrap();
+        // Copied into Download without .build.info, found by its _classic_beta_.
+        let b = vol.join("Download").join("World of Warcraft").join("_classic_beta_");
+        std::fs::create_dir_all(b.join("WTF")).unwrap();
+        // Not a game root: neither marker, so its _x_ folder is never looked at.
+        std::fs::create_dir_all(vol.join("Download").join("Photos").join("_x_").join("WTF")).unwrap();
+        let found = find_installs_in(&[vol.clone()]);
+        let paths: Vec<&str> = found.iter().map(|i| i.path.as_str()).collect();
+        // Sorted by path within Forever installs.
+        assert_eq!(paths, vec![b.to_string_lossy(), a.to_string_lossy()], "{found:?}");
+        assert!(found.iter().all(|i| i.flavor == "forever"), "{found:?}");
+        let _ = std::fs::remove_dir_all(&vol);
     }
 
     #[test]
