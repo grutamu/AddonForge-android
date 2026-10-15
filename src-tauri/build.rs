@@ -1,6 +1,5 @@
 fn main() {
-    // Refresh the embedded Windows resources when only the artwork changes.
-    println!("cargo:rerun-if-changed=icons/icon.ico");
+    // Refresh the embedded window icon when only the artwork changes.
     println!("cargo:rerun-if-changed=icons/icon.png");
     tauri_build::build()
 }
