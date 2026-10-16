@@ -26,7 +26,7 @@ every pull request and every push to `android` (`.github/workflows/build.yml`;
 Markdown-only changes skip it). The release workflow runs the UI checks and
 the security gate again before it builds.
 
-### `cargo test`: 22 tests
+### `cargo test`: 23 tests
 
 | Area | Test | What it proves |
 |---|---|---|
@@ -36,7 +36,7 @@ the security gate again before it builds.
 | Dependencies | `missing_dependencies_are_reported_and_matched_to_catalogue` | Missing required deps are listed and matched to catalogue entries |
 | Catalogue | `catalog::converts_forever_curse_entries_and_links_unique_github_repos` | instawow's list is filtered to Forever CurseForge entries, and a GitHub repo is attached only when exactly one claims the entry |
 | Versions | `sources::bundle_release_names_every_folder_version`, `bundle_addon_shows_its_own_version_and_matches_the_bundle_release` | A bundle release (Questie `v12.1.0+v1.0.6`) is up to date when it names every folder's version |
-| CurseForge (unofficial) | `sources::curseforge::picks_newest_forever_release_before_betas`, `sources::curseforge::alpha_only_when_nothing_else_and_flags_non_forever`, `sources::curseforge::cdn_url_splits_the_id_and_encodes_the_name`, `curseforge_only_with_the_switch_and_only_as_last_resort` | The cfwidget file pick and download URL, and CurseForge is used only with the switch on and only when no other source exists |
+| CurseForge | `sources::curseforge::picks_newest_forever_release_before_betas`, `sources::curseforge::alpha_only_when_nothing_else_and_flags_non_forever`, `sources::curseforge::cdn_url_splits_the_id_and_encodes_the_name`, `curseforge_is_the_last_resort`, `state::tests::old_state_with_removed_fields_still_loads` | The cfwidget file pick and download URL, CurseForge is used only when no other source exists (but beats Wago without a key), and a state.json with the old `curse_unofficial` field still loads |
 | Install safety | `install::safety_scan_refuses_executables` | A zip with an executable (extension or `MZ` header) or a symlink is refused |
 | Install safety | `install::removing_a_folder_never_follows_a_link` | Removing an addon folder never deletes through a link (SavedVariables stay safe) |
 | Sources | `sources::parses_github_inputs` | `owner/repo` and GitHub URLs parse |

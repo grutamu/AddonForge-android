@@ -337,8 +337,8 @@ pub async fn github_details(client: &reqwest::Client, repo: &str) -> Details {
     Details { summary, image }
 }
 
-/// Summary and thumbnail for a CurseForge project (unofficially, through
-/// cfwidget). Cached a day.
+/// Summary and thumbnail for a CurseForge project (through cfwidget).
+/// Cached a day.
 pub async fn curse_details(client: &reqwest::Client, id: u64) -> Details {
     let cache = cache_dir().join(format!("{}.json", key(&format!("curse|{id}"))));
     if let Ok(meta) = fs::metadata(&cache) {

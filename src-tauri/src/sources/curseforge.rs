@@ -1,4 +1,4 @@
-//! CurseForge, unofficially. Off unless the user turns it on in Settings.
+//! CurseForge.
 //!
 //! We have no CurseForge API key (their keys can't ship in an open-source
 //! app), so this goes around the API: cfwidget.com, a third-party service

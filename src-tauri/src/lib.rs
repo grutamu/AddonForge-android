@@ -84,7 +84,7 @@ pub struct Package {
     pub remote_forever: Option<bool>,
     pub remote_prerelease: bool,
     pub update_available: bool,
-    /// ok | update | unknown | curse-only | no-source | no-key | error | checking
+    /// ok | update | unknown | no-source | no-key | error | checking
     pub status: String,
     pub note: String,
 }
@@ -97,13 +97,11 @@ fn pick_source(
     entry: Option<&CatalogEntry>,
     f: &AddonFolder,
     has_wago: bool,
-    curse: bool,
     managed: Option<&Installed>,
 ) -> Option<Source> {
-    // What we installed it from wins: it's what the user chose. CurseForge
-    // only while the unofficial switch stays on.
+    // What we installed it from wins: it's what the user chose.
     if let Some(m) = managed {
-        if let Some(s) = Source::from_parts(&m.source, &m.source_id).filter(|s| curse || !matches!(s, Source::Curse(_))) {
+        if let Some(s) = Source::from_parts(&m.source, &m.source_id) {
             return Some(s);
         }
     }
@@ -134,7 +132,7 @@ fn pick_source(
         return Some(Source::Github(repo));
     }
     // CurseForge is the last resort, but beats a Wago entry we have no key for.
-    if let Some(c) = entry.and_then(|e| e.curse).or(f.curse).filter(|_| curse) {
+    if let Some(c) = entry.and_then(|e| e.curse).or(f.curse) {
         return Some(Source::Curse(c));
     }
     // Listed but user has no key: surface it so the UI can explain.
@@ -183,7 +181,6 @@ fn build_packages(st: &AppState, cat: &Catalog, folders: &[AddonFolder]) -> Vec<
         }
     }
     let has_wago = st.has_wago_key();
-    let curse = st.curse_unofficial;
 
     // Folders we installed ourselves are authoritative: they stay with their package.
     let mut managed_folder: HashMap<String, &str> = HashMap::new();
@@ -327,8 +324,8 @@ fn build_packages(st: &AppState, cat: &Catalog, folders: &[AddonFolder]) -> Vec<
         let mut folder_versions: Vec<String> = if managed.is_some() { Vec::new() } else { fs.iter().filter_map(|f| usable(&f.version)).collect() };
         folder_versions.sort();
         folder_versions.dedup();
-        let source = pick_source(entry, primary, has_wago, curse, managed)
-            .or_else(|| fs.iter().find_map(|f| pick_source(None, f, has_wago, curse, None)));
+        let source = pick_source(entry, primary, has_wago, managed)
+            .or_else(|| fs.iter().find_map(|f| pick_source(None, f, has_wago, None)));
         let curse_id = entry.and_then(|e| e.curse).or_else(|| fs.iter().find_map(|f| f.curse));
         let supports_forever = fs.iter().any(|f| f.supports_forever());
 
@@ -358,10 +355,6 @@ fn build_packages(st: &AppState, cat: &Catalog, folders: &[AddonFolder]) -> Vec<
                 "On Wago: add your free Wago API key in Settings to update".to_string(),
             ),
             Some(_) => ("unknown".to_string(), String::new()),
-            None if curse_id.is_some() => (
-                "curse-only".to_string(),
-                "Only on CurseForge: AddonForge can't update it, but the link works (or try the unofficial CurseForge switch in Settings)".to_string(),
-            ),
             None => ("no-source".to_string(), "No update source found in its files".to_string()),
         };
         let mut folder_names: Vec<String> = fs.iter().map(|f| f.folder.clone()).collect();
@@ -457,7 +450,7 @@ async fn resolve_into(app: &App, pkg: &mut Package, cat: &Catalog) {
     };
     let mut res = sources::resolve(&app.client, &src, opts.clone()).await;
     // No Forever build on GitHub: CurseForge may have one.
-    if let (Ok(r), Source::Github(_), Some(c), true) = (&res, &src, pkg.curse_id, st.curse_unofficial) {
+    if let (Ok(r), Source::Github(_), Some(c)) = (&res, &src, pkg.curse_id) {
         if r.forever == Some(false) {
             src = Source::Curse(c);
             res = sources::resolve(&app.client, &src, opts).await;
@@ -529,7 +522,6 @@ struct Settings {
     install: Option<WowInstall>,
     has_wago_key: bool,
     allow_prerelease: bool,
-    curse_unofficial: bool,
     ignored_count: usize,
     state_file: String,
     log_file: String,
@@ -556,7 +548,6 @@ async fn get_settings(app: State<'_, Shared>) -> Result<Settings, String> {
         install,
         has_wago_key: st.has_wago_key(),
         allow_prerelease: st.allow_prerelease,
-        curse_unofficial: st.curse_unofficial,
         ignored_count: st.ignored.len(),
         state_file: AppState::path().to_string_lossy().to_string(),
         log_file: log::path().to_string_lossy().to_string(),
@@ -606,15 +597,11 @@ async fn set_wago_key(app: State<'_, Shared>, key: String) -> Result<bool, Strin
 }
 
 #[tauri::command]
-async fn set_prefs(app: State<'_, Shared>, allow_prerelease: Option<bool>, curse_unofficial: Option<bool>) -> Result<(), String> {
+async fn set_prefs(app: State<'_, Shared>, allow_prerelease: Option<bool>) -> Result<(), String> {
     let mut st = app.state.lock().await;
     if let Some(v) = allow_prerelease {
         st.allow_prerelease = v;
         logi!("allow_prerelease = {v}");
-    }
-    if let Some(v) = curse_unofficial {
-        st.curse_unofficial = v;
-        logi!("curse_unofficial = {v}");
     }
     st.save().map_err(err)
 }
@@ -683,9 +670,6 @@ async fn install_from(
     let install = current_install(app).await?;
     let addons = addons_dir(&install);
     let st = app.state.lock().await.clone();
-    if matches!(src, Source::Curse(_)) && !st.curse_unofficial {
-        return Err("This addon is only on CurseForge: turn on the unofficial CurseForge switch in Settings first".into());
-    }
     let opts = ResolveOpts {
         asset_hint,
         wago_key: st.wago_key.as_deref(),
@@ -755,8 +739,7 @@ async fn github_from_toc(install: &str, folders: &[String]) -> Option<String> {
         .find_map(|f| f.website.as_deref().and_then(sources::parse_github_repo))
 }
 
-/// Install, and when GitHub has no Forever build fall back to CurseForge
-/// (unofficial switch on).
+/// Install, and when GitHub has no Forever build fall back to CurseForge.
 async fn install_or_curse(
     app: &App,
     key: &str,
@@ -766,16 +749,13 @@ async fn install_or_curse(
     allow_non_forever: bool,
 ) -> Result<Installed, String> {
     match install_from(app, key, src, asset_hint, allow_non_forever).await {
-        Err(e) if e == "NOT_FOREVER" && matches!(src, Source::Github(_)) => {
-            let curse = app.state.lock().await.curse_unofficial;
-            match curse_id.filter(|_| curse) {
-                Some(c) => {
-                    logi!("{key}: no Forever build on GitHub, trying CurseForge");
-                    install_from(app, key, &Source::Curse(c), None, allow_non_forever).await
-                }
-                None => Err(e),
+        Err(e) if e == "NOT_FOREVER" && matches!(src, Source::Github(_)) => match curse_id {
+            Some(c) => {
+                logi!("{key}: no Forever build on GitHub, trying CurseForge");
+                install_from(app, key, &Source::Curse(c), None, allow_non_forever).await
             }
-        }
+            None => Err(e),
+        },
         r => r,
     }
 }
@@ -902,7 +882,7 @@ async fn install_catalog(
         .ok_or_else(|| "Not in the catalogue".to_string())?;
     let st = app.state.lock().await.clone();
     let has_wago = st.has_wago_key();
-    let src = pick_source(Some(&e), &AddonFolder::default(), has_wago, st.curse_unofficial, None)
+    let src = pick_source(Some(&e), &AddonFolder::default(), has_wago, None)
         .ok_or_else(|| "This catalogue entry has no downloadable source".to_string())?;
     if matches!(src, Source::Wago(_)) && !has_wago {
         return Err("This addon is on Wago: add your free Wago API key in Settings first".into());
@@ -1034,10 +1014,7 @@ async fn import_list(app: State<'_, Shared>, path: String) -> Result<Vec<ImportR
     let bytes = std::fs::read(&path).map_err(err)?;
     let file: ExportFile = serde_json::from_slice(&bytes).map_err(|e| format!("not an AddonForge list: {e}"))?;
     let have: Vec<String> = scan_packages(&app).await?.into_iter().map(|p| p.key).collect();
-    let (has_wago, curse) = {
-        let st = app.state.lock().await;
-        (st.has_wago_key(), st.curse_unofficial)
-    };
+    let has_wago = app.state.lock().await.has_wago_key();
     Ok(file
         .addons
         .into_iter()
@@ -1046,7 +1023,6 @@ async fn import_list(app: State<'_, Shared>, path: String) -> Result<Vec<ImportR
             let (installable, why) = match &it.source {
                 None => (false, "no source (probably CurseForge-only or a personal addon)".into()),
                 Some(Source::Wago(_)) if !has_wago => (false, "needs a Wago key".into()),
-                Some(Source::Curse(_)) if !curse => (false, "CurseForge only (turn on the unofficial switch in Settings)".into()),
                 Some(_) => (true, String::new()),
             };
             ImportRow { name: it.name, key: it.key, source: it.source, installed, installable, why }
@@ -1137,10 +1113,9 @@ async fn diagnostics(app: State<'_, Shared>) -> Result<String, String> {
         None => s.push_str("Install: none selected\n"),
     }
     s.push_str(&format!(
-        "Wago key: {} | pre-releases: {} | CurseForge (unofficial): {} | pinned: {} | ignored: {}\n",
+        "Wago key: {} | pre-releases: {} | pinned: {} | ignored: {}\n",
         if st.has_wago_key() { "yes" } else { "no" },
         st.allow_prerelease,
-        st.curse_unofficial,
         st.pinned.len(),
         st.ignored.len()
     ));
@@ -1313,32 +1288,38 @@ mod tests {
     }
 
     #[test]
-    fn curseforge_only_with_the_switch_and_only_as_last_resort() {
+    fn curseforge_is_the_last_resort() {
         let mut st = AppState::default();
         let cat: Catalog = serde_json::from_str(
-            r#"{"addons":[{"id":"details","name":"Details","curse":61284,"folders":["Details"]},{"id":"both","name":"Both","github":"a/b","curse":1,"folders":["Both"]},{"id":"wago","name":"W","wago":"xyz","curse":2,"folders":["W"]}]}"#,
+            r#"{"addons":[{"id":"details","name":"Details","curse":61284,"folders":["Details"]},{"id":"both","name":"Both","github":"a/b","curse":1,"folders":["Both"]},{"id":"wago","name":"W","wago":"xyz","curse":2,"folders":["W"]},{"id":"wowi","name":"I","wowi":5,"curse":3,"folders":["I"]},{"id":"tukui","name":"T","tukui":"elvui","curse":4,"folders":["T"]}]}"#,
         )
         .unwrap();
-        let folders = vec![folder("Details", &[], None), folder("Both", &[], None), folder("W", &[], None)];
+        let mut toc_only = folder("Tocky", &[], None);
+        toc_only.curse = Some(77);
+        let folders = vec![folder("Details", &[], None), folder("Both", &[], None), folder("W", &[], None), folder("I", &[], None), folder("T", &[], None), toc_only];
         let by_name = |pkgs: &[Package], n: &str| pkgs.iter().find(|p| p.name == n).unwrap().clone();
 
-        let off = build_packages(&st, &cat, &folders);
-        assert_eq!(by_name(&off, "Details").status, "curse-only");
-        assert_eq!(by_name(&off, "W").status, "no-key");
+        let pkgs = build_packages(&st, &cat, &folders);
+        let details = by_name(&pkgs, "Details");
+        assert_eq!(details.source, Some(Source::Curse(61284)));
+        assert_eq!(details.status, "unknown");
+        assert_eq!(details.source_label, "CurseForge");
+        assert_eq!(details.source_url.as_deref(), Some("https://www.curseforge.com/projects/61284"));
+        assert_eq!(by_name(&pkgs, "Tocky").source, Some(Source::Curse(77)));
+        assert_eq!(by_name(&pkgs, "Both").source, Some(Source::Github("a/b".into())));
+        assert_eq!(by_name(&pkgs, "I").source, Some(Source::Wowi(5)));
+        assert_eq!(by_name(&pkgs, "T").source, Some(Source::Tukui("elvui".into())));
+        // No Wago key: CurseForge beats the Wago entry. With a key, Wago wins.
+        assert_eq!(by_name(&pkgs, "W").source, Some(Source::Curse(2)));
+        st.wago_key = Some("k".into());
+        assert_eq!(by_name(&build_packages(&st, &cat, &folders), "W").source, Some(Source::Wago("xyz".into())));
 
-        st.curse_unofficial = true;
-        let on = build_packages(&st, &cat, &folders);
-        assert_eq!(by_name(&on, "Details").source, Some(Source::Curse(61284)));
-        assert_eq!(by_name(&on, "Both").source, Some(Source::Github("a/b".into())));
-        assert_eq!(by_name(&on, "W").source, Some(Source::Curse(2)));
-
-        // Installed from CurseForge, then the switch goes off: back to the link.
+        // Installed from CurseForge: stays on CurseForge.
         st.installed.insert(
-            "cat:details".into(),
-            Installed { source: "curse".into(), source_id: "61284".into(), version: "1".into(), folders: vec!["Details".into()], installed_at: 0 },
+            "cat:both".into(),
+            Installed { source: "curse".into(), source_id: "1".into(), version: "1".into(), folders: vec!["Both".into()], installed_at: 0 },
         );
-        st.curse_unofficial = false;
-        assert_eq!(by_name(&build_packages(&st, &cat, &folders), "Details").status, "curse-only");
+        assert_eq!(by_name(&build_packages(&st, &cat, &folders), "Both").source, Some(Source::Curse(1)));
     }
 
     #[test]

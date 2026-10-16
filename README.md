@@ -7,7 +7,7 @@ This is an unofficial port of [AddonForge](https://github.com/Topher121/AddonFor
 ![Find addons on the AYN Thor: the catalogue on the left, an addon's details and Install button on the right](docs/screenshots/find-addons.png)
 
 - **Made for the controller.** Every screen works with the D-pad and buttons. Touch works too.
-- **Private.** No account, no ads, no analytics. The app talks only to the sites addons are published on (GitHub, Wago, WoWInterface, TukUI; CurseForge's file storage and cfwidget.com only if you turn on the unofficial CurseForge switch), plus GitHub to see if a new AddonForge is out.
+- **Private.** No account, no ads, no analytics. The app talks only to the sites addons are published on (GitHub, Wago, WoWInterface, TukUI, CurseForge's file storage, and cfwidget.com for CurseForge file lists), plus GitHub to see if a new AddonForge is out.
 - **Careful with your game.** It only ever changes `Interface/AddOns`. Your addon settings (in `WTF`) are never touched, and it refuses any download that contains a program.
 
 ## Install
@@ -61,7 +61,7 @@ Start WoW from your launcher. On the character-select screen there is an **AddOn
 
 **An addon says "Needs Wago key".** Some authors only publish on Wago, whose API needs a free key from [addons.wago.io](https://addons.wago.io/account/apikeys). Paste it in Settings. It stays on your device and is only ever sent to Wago.
 
-**An addon says "CurseForge only".** CurseForge doesn't let apps like this use its API, so by default AddonForge shows you the addon's page. **Settings → Updates → Install CurseForge-only addons (unofficial)** lets AddonForge install and update them anyway: it looks up the latest file through cfwidget.com and downloads it from CurseForge's file storage. CurseForge doesn't support this, and it can stop working at any time; the addon then goes back to its link.
+**A CurseForge addon won't download.** For addons that are only on CurseForge, AddonForge looks up the latest file through cfwidget.com and downloads it from CurseForge's file storage. If either is down, the addon shows an error with a link to its CurseForge page, where you can get it by hand.
 
 **An addon says "not for Forever".** The author hasn't published a version for Forever yet. It may still load, or it may error in game.
 
@@ -85,7 +85,7 @@ AddonForge reads your `Interface/AddOns` folder and each addon's `.toc` file to 
 | Wago Addons | Your own free key | Paste it in Settings. Only sent to addons.wago.io. |
 | WoWInterface | No | |
 | TukUI | No | ElvUI / Tukui. |
-| CurseForge | No | Link only unless you turn on **Install CurseForge-only addons (unofficial)** in Settings. Their API terms don't allow a key to ship inside an app. |
+| CurseForge | No | Used when no other source has the addon. File list from cfwidget.com, download from CurseForge's file storage. |
 
 ## How it's built
 

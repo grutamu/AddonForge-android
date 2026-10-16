@@ -34,10 +34,6 @@ pub struct AppState {
     /// Consider GitHub pre-releases and Wago beta builds when checking.
     #[serde(default)]
     pub allow_prerelease: bool,
-    /// Install and update CurseForge-only addons through cfwidget and
-    /// CurseForge's file storage. Unofficial, off unless the user opts in.
-    #[serde(default)]
-    pub curse_unofficial: bool,
     /// Package keys whose updates are held back.
     #[serde(default)]
     pub pinned: BTreeSet<String>,
@@ -103,5 +99,22 @@ impl AppState {
 
     pub fn has_wago_key(&self) -> bool {
         self.wago_key.as_deref().map(|k| !k.trim().is_empty()).unwrap_or(false)
+    }
+}
+
+#[cfg(test)]
+mod tests {
+    use super::*;
+
+    #[test]
+    fn old_state_with_removed_fields_still_loads() {
+        for v in ["true", "false"] {
+            let json = format!(r#"{{"install_path":"/x","allow_prerelease":true,"curse_unofficial":{v},"pinned":["a"]}}"#);
+            let st: AppState = serde_json::from_str(&json).unwrap();
+            assert_eq!(st.install_path.as_deref(), Some("/x"));
+            assert!(st.allow_prerelease);
+            assert!(st.pinned.contains("a"));
+            assert!(!serde_json::to_string(&st).unwrap().contains("curse_unofficial"));
+        }
     }
 }

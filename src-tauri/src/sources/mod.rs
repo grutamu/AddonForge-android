@@ -17,7 +17,7 @@ pub enum Source {
     Wago(String),
     Wowi(u64),
     Tukui(String),
-    /// CurseForge project id. Unofficial, only when Settings allows it.
+    /// CurseForge project id.
     Curse(u64),
 }
 
@@ -46,7 +46,7 @@ impl Source {
             Source::Wago(_) => "Wago".into(),
             Source::Wowi(_) => "WoWInterface".into(),
             Source::Tukui(_) => "TukUI".into(),
-            Source::Curse(_) => "CurseForge (unofficial)".into(),
+            Source::Curse(_) => "CurseForge".into(),
         }
     }
     pub fn url(&self) -> String {

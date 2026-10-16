@@ -159,7 +159,6 @@ function badge(p) {
     ok: "Up to date",
     update: "Update available",
     error: "Error",
-    "curse-only": "CurseForge only",
     "no-source": "No source",
     "no-key": "Needs Wago key",
     unknown: "Not checked",
@@ -218,7 +217,7 @@ function renderInstalled() {
             : "";
           const entry = catalog.find((c) => c.id === p.catalog_id);
           const sub = esc(entry?.category || p.author || `${p.folders.length} folder${p.folders.length === 1 ? "" : "s"}`);
-          return `<div class="item ${p.ignored ? "ignored" : ""} ${p.status === "no-source" || p.status === "curse-only" ? "dim" : ""} ${p.key === detailPackageKey ? "selected" : ""}" data-key="${esc(p.key)}">
+          return `<div class="item ${p.ignored ? "ignored" : ""} ${p.status === "no-source" ? "dim" : ""} ${p.key === detailPackageKey ? "selected" : ""}" data-key="${esc(p.key)}">
         <div class="c-name">${iconTile("p", p.key, p.name)}<div class="nm-wrap"><button class="nm addon-detail" data-package-detail="${esc(p.key)}" aria-haspopup="dialog" title="View addon details">${esc(p.name)}</button>${flags ? `<span class="flags">${flags}</span>` : ""}${sub ? `<div class="sub-line">${sub}</div>` : ""}</div></div>
         <div class="c-ver" title="Installed version">${ver}</div>
         <div class="c-ver available" title="Available version">${remote}</div>
@@ -463,7 +462,7 @@ function renderCatalog() {
   $("browse-list").innerHTML = rows.length
     ? rows
         .map((e) => {
-          const src = e.github ? `GitHub · ${e.github}` : e.wago ? "Wago" : e.wowi ? "WoWInterface" : e.tukui ? "TukUI" : settings?.curse_unofficial ? "CurseForge (unofficial)" : "CurseForge only";
+          const src = e.github ? `GitHub · ${e.github}` : e.wago ? "Wago" : e.wowi ? "WoWInterface" : e.tukui ? "TukUI" : e.curse ? "CurseForge" : "";
           const fv = e.forever === true ? `<span class="badge forever">Forever</span>` : e.forever === false ? `<span class="badge not-forever">No Forever build</span>` : "";
           const canInstall = catalogInstallable(e);
           const needsKey = e.wago && !canInstall;
@@ -473,7 +472,7 @@ function renderCatalog() {
             <div class="c-dl" title="${e.downloads != null ? esc(e.downloads.toLocaleString() + " downloads, all time, counted on " + ({ wowi: "WoWInterface", curse: "CurseForge" }[e.stat_source] || "GitHub")) : "No download count for this source"}">${e.downloads != null ? `<b>${fmtCount(e.downloads)}</b>` : `<span class="muted">\u2014</span>`}${e.updated_at ? `<div class="sub-line">${ago(e.updated_at)}</div>` : ""}</div>
             <div class="c-src"><a href="#" data-url="${esc(e.url || (e.github ? "https://github.com/" + e.github : "#"))}">${esc(src)}</a></div>
             <div class="c-act">
-              ${canInstall ? `<button class="btn small" data-act="install">${e.installed ? "Reinstall" : "Install"}</button>` : needsKey ? `<span class="badge no-key">needs Wago key</span>` : `<span class="badge curse-only">link only</span>`}
+              ${canInstall ? `<button class="btn small" data-act="install">${e.installed ? "Reinstall" : "Install"}</button>` : needsKey ? `<span class="badge no-key">needs Wago key</span>` : `<span class="badge no-source">link only</span>`}
             </div>
           </div>`;
         })
@@ -506,9 +505,9 @@ let detailSeq = 0;
 let detailEntry = null;
 let detailFocus = null;
 let detailPackageKey = null; // installed addon shown in the details pane
-// Mirrors pick_source in lib.rs: CurseForge only with the unofficial switch on.
+// Mirrors pick_source in lib.rs: every source installs, Wago only with a key.
 function catalogInstallable(e) {
-  return e.github || e.wowi || e.tukui || (e.wago && settings?.has_wago_key) || (e.curse && settings?.curse_unofficial);
+  return e.github || e.wowi || e.tukui || (e.wago && settings?.has_wago_key) || e.curse;
 }
 function sourceLabel(e) {
   return e.github ? `GitHub \u00b7 ${e.github}` : e.wago ? "Wago" : e.wowi ? "WoWInterface" : e.tukui ? "TukUI" : "CurseForge";
@@ -548,7 +547,7 @@ async function openDetail(id, installedPackage = null) {
   const needsKey = e.wago && !canInstall;
   $("detail-install").textContent = e.installed ? "Reinstall" : "Install";
   $("detail-install").classList.toggle("hidden", !canInstall);
-  $("detail-note").textContent = needsKey ? "Needs a Wago key (Settings)." : canInstall || installedPackage ? "" : e.curse ? "CurseForge only: get it from its page, or turn on the unofficial CurseForge switch in Settings." : "Not installable from here: get it from its page.";
+  $("detail-note").textContent = needsKey ? "Needs a Wago key (Settings)." : canInstall || installedPackage ? "" : "Not installable from here: get it from its page.";
   $("detail-open").classList.toggle("hidden", !entryUrl(e));
   renderPackageActions();
   $("detail").classList.remove("hidden");
@@ -704,7 +703,6 @@ async function loadSettings() {
   $("wago-link").dataset.url = settings.wago_key_url;
   $("wago-status").textContent = settings.has_wago_key ? "A key is saved." : "No key saved. Wago-only addons will show as \"Needs Wago key\".";
   $("pref-prerelease").checked = !!settings.allow_prerelease;
-  $("pref-curse").checked = !!settings.curse_unofficial;
   $("catalog-info").textContent = settings.catalog_count
     ? `${settings.catalog_count} addons · ${{ remote: "downloaded from instawow's list", cached: "today's copy of instawow's list", "cached (old)": "older copy (instawow's list unreachable)" }[settings.catalog_source] || settings.catalog_source}${settings.catalog_updated ? " · " + settings.catalog_updated : ""}`
     : "not loaded yet";
@@ -813,17 +811,6 @@ $("pref-prerelease").addEventListener("change", async (e) => {
   try {
     await invoke("set_prefs", { allowPrerelease: e.target.checked });
     toast(e.target.checked ? "Pre-releases included. Check for updates to see them." : "Pre-releases excluded");
-  } catch (err) {
-    toast(String(err), true);
-  }
-});
-$("pref-curse").addEventListener("change", async (e) => {
-  try {
-    await invoke("set_prefs", { curseUnofficial: e.target.checked });
-    toast(e.target.checked ? "CurseForge-only addons can be installed now (unofficial)" : "CurseForge-only addons are link-only again");
-    await loadSettings();
-    renderCatalog();
-    await rescan();
   } catch (err) {
     toast(String(err), true);
   }

@@ -35,7 +35,7 @@ pub struct CatalogEntry {
     /// TukUI slug (elvui / tukui).
     #[serde(default)]
     pub tukui: Option<String>,
-    /// CurseForge project id. Downloads only through the unofficial switch.
+    /// CurseForge project id.
     #[serde(default)]
     pub curse: Option<u64>,
     /// Substring to pick the right zip when a GitHub release has several
