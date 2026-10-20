@@ -148,7 +148,8 @@ AddOns folder. Before trying them, back up
 | Resume re-check | Leave the app for more than 10 minutes and come back: it re-checks quietly |
 | Update banner | Set `ADDONFORGE_UPDATE_URL` to a local file on a release build. Local builds never show the banner |
 | Large font | `font_scale 1.3`, then walk every tab |
-| On-screen keyboard | Search and the Wago key field. On the Thor the keyboard opens on the bottom screen |
+| On-screen keyboard | Search and the Wago key field. With the app on the top screen the keyboard opens on the bottom screen. Moving onto a text box with the D-pad must not open it; A or Y does |
+| Lower screen | `adb shell am start --display <id> -n io.github.grutamu.addonforge/.MainActivity` (the id from `adb shell dumpsys display`; `Screen-2` is the lower one), then drive it with `adb shell input -d <id> keyevent KEYCODE_…`. The list fills the width with a bar of buttons under it, an addon's details replace the list until B, and the keyboard pushes the page up instead of covering it |
 
 ## Test history
 
@@ -180,3 +181,12 @@ did their jobs when sent through adb. "Report on GitHub" while signed out
 used to open a ~5,900-character link that GitHub answered with an error
 page; it now opens the sign-in page with the diagnostics copied. X and the
 physical buttons were not tried.
+
+**2026-10-19, lower-screen layout.** Host checks: 23 Rust tests, the UI
+checks and the security gate all passed. On the Thor, the app was run on
+the lower screen (538x444 CSS px) and the top screen, driven with the pad
+through adb, with screenshots of every tab, an installed addon's and a
+catalogue addon's details, Back, and the keyboard in search and the Wago
+key field. The first keyboard after an `adb install` once showed a blank
+page until the next key press; it didn't happen again on fresh launches.
+Nothing was installed or removed.

@@ -11,6 +11,10 @@
     root.querySelectorAll(".item").forEach((el) => { el.tabIndex = 0; el.setAttribute("role", "button"); });
     root.querySelectorAll(".addon-detail, .c-src a").forEach((el) => { el.tabIndex = -1; });
   }
+  // Opening an addon on the lower screen hides the list the focus was on.
+  new MutationObserver(() => {
+    if (fullDetail() && body.classList.contains("pad-used") && !current()) setTimeout(focusFirst, 0);
+  }).observe($("detail"), { attributes: true, attributeFilter: ["class"] });
   for (const id of ["installed-list", "browse-list"]) {
     const list = $(id);
     new MutationObserver(() => {
@@ -37,10 +41,15 @@
   const ROLE = { A: "confirm", B: "back", X: "primary", Y: "search" };
 
   const FOCUSABLE = 'button, a[href], a[data-url], input:not([type=hidden]), select, summary, [tabindex="0"]';
+  const TEXT = "input[type=text], input[type=search], input[type=password]";
   const open = (id) => !$(id).classList.contains("hidden");
   const scope = () => (open("modal") ? $("modal") : open("onboard") ? $("onboard") : body);
   const shown = (el) => el.getClientRects().length > 0 && getComputedStyle(el).visibility !== "hidden";
   const candidates = () => [...scope().querySelectorAll(FOCUSABLE)].filter((el) => !el.disabled && el.tabIndex >= 0 && shown(el));
+  // The lower screen (style.css's max-width: 700px): the details replace the
+  // list instead of sitting beside it, and the pane's tools are a bar under it.
+  const NARROW = matchMedia("(max-width: 700px)");
+  const fullDetail = () => NARROW.matches && open("detail");
   const current = () => {
     const el = document.activeElement;
     return el && el !== body && scope().contains(el) && shown(el) ? el : null;
@@ -50,6 +59,9 @@
   function focus(el) {
     if (!el) return;
     wanted = el;
+    // Passing over a text box with the pad shouldn't open the keyboard (on the
+    // lower screen it covers the app); A does, through typeIn.
+    if (el.matches(TEXT)) el.inputMode = "none";
     el.focus({ preventScroll: true });
     el.scrollIntoView({ block: "nearest", inline: "nearest" });
     remember(el);
@@ -69,8 +81,13 @@
   function focusFirst() {
     const s = scope();
     if (s !== body) return focus(candidates()[0]);
+    if (fullDetail()) {
+      const main = [$("detail-install"), $("detail-actions").querySelector(".btn")].find((el) => el && shown(el));
+      return focus(main || candidates().find((el) => $("pane").contains(el)));
+    }
     const panel = document.querySelector(".panel.active");
-    const pick = panel.querySelector(".item.selected") || panel.querySelector(".item[tabindex]") || candidates().find((el) => panel.contains(el));
+    // Not a text box: focusing one opens the on-screen keyboard over the tab.
+    const pick = panel.querySelector(".item.selected") || panel.querySelector(".item[tabindex]") || candidates().find((el) => panel.contains(el) && !el.matches(TEXT));
     focus(pick || candidates()[0]);
   }
 
@@ -89,7 +106,9 @@
     const vertical = dir === "UP" || dir === "DOWN";
     // Up and down inside the side pane stay in it (its text is read by
     // scrolling, not by jumping to the list); Left and Back leave it.
-    if (vertical && scope() === body && $("pane").contains(cur)) return paneMove(dir === "DOWN", cur);
+    // On the lower screen that is only the details: the bar under the list is
+    // part of it.
+    if (vertical && scope() === body && $("pane").contains(cur) && (!NARROW.matches || fullDetail())) return paneMove(dir === "DOWN", cur);
     let best = null, bestScore = Infinity;
     for (const el of candidates()) {
       if (el === cur) continue;
@@ -185,9 +204,15 @@
   function confirm() {
     const el = current();
     if (!el) return focusFirst();
-    if (el.matches("input[type=text], input[type=search], input[type=password]")) return A?.showKeyboard();
+    if (el.matches(TEXT)) return typeIn(el);
     el.click();
   }
+
+  function typeIn(el) {
+    el.removeAttribute("inputmode");
+    A?.showKeyboard();
+  }
+  document.addEventListener("pointerdown", (e) => { if (e.target.matches?.(TEXT)) e.target.removeAttribute("inputmode"); }, true);
 
   function tabs(step) {
     const all = [...document.querySelectorAll(".tab")];
@@ -207,7 +232,7 @@
     const input = { installed: "installed-filter", browse: "browse-filter" }[body.dataset.tab];
     if (!input) return;
     focus($(input));
-    A?.showKeyboard();
+    typeIn($(input));
   }
 
   // One layer at a time: dialog, text box, details, other tab, then leave.
@@ -215,7 +240,7 @@
     if (open("modal")) return $("modal-no").classList.contains("hidden") ? $("modal-yes").click() : $("modal-no").click();
     if (open("onboard")) return A?.exit();
     const el = current();
-    if (el?.matches("input[type=text], input[type=search], input[type=password]")) {
+    if (el?.matches(TEXT)) {
       el.blur();
       return focusFirst();
     }
@@ -244,7 +269,7 @@
   };
   // Keyboards (and desktop preview): arrows move, Enter confirms, Escape backs out.
   document.addEventListener("keydown", (e) => {
-    const typing = e.target.matches?.("input[type=text], input[type=search], input[type=password]");
+    const typing = e.target.matches?.(TEXT);
     const dir = { ArrowUp: "UP", ArrowDown: "DOWN", ArrowLeft: "LEFT", ArrowRight: "RIGHT" }[e.key];
     if (dir && !(typing && (dir === "LEFT" || dir === "RIGHT"))) {
       e.preventDefault();

@@ -144,7 +144,7 @@ For addons that are only on CurseForge, AddonForge reads the file list from cfwi
 Only APKs from this project's [releases page](https://github.com/grutamu/AddonForge-android/releases) can install over your copy. If you really have to, uninstall AddonForge first. Your addons stay in the game folder; you only lose AddonForge's own settings.
 
 **Does it work on other Android devices?**
-It's made and tested for the AYN Thor's top screen. Other landscape Android handhelds may work, but nobody has tested them.
+It's made and tested for the AYN Thor, on either screen: on the smaller bottom screen the list takes the full width and an addon's details open in its place. Other landscape Android handhelds may work, but nobody has tested them.
 
 **Does removing an addon delete my settings for it?**
 No. Settings are saved in the game's `WTF` folder, which AddonForge never touches.

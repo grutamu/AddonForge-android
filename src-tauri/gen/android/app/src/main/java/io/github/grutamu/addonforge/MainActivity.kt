@@ -13,6 +13,7 @@ import android.view.HapticFeedbackConstants
 import android.view.InputDevice
 import android.view.KeyEvent
 import android.view.MotionEvent
+import android.view.View
 import android.view.WindowManager
 import android.view.inputmethod.InputMethodManager
 import android.webkit.JavascriptInterface
@@ -20,6 +21,7 @@ import android.webkit.WebView
 import androidx.activity.OnBackPressedCallback
 import androidx.activity.result.contract.ActivityResultContracts
 import androidx.core.content.FileProvider
+import androidx.core.view.ViewCompat
 import androidx.core.view.WindowCompat
 import androidx.core.view.WindowInsetsCompat
 import androidx.core.view.WindowInsetsControllerCompat
@@ -94,6 +96,14 @@ class MainActivity : TauriActivity() {
     // key-navigation mode; the UI draws its own focus ring.
     webView.defaultFocusHighlightEnabled = false
     webView.addJavascriptInterface(Bridge(), "AddonForgeAndroid")
+    // Edge to edge (targetSdk 35+) the window no longer shrinks for the
+    // keyboard. When it opens on this screen (the app on the Thor's lower
+    // screen) lift the page above it; on the other screen the inset is 0.
+    val content = findViewById<View>(android.R.id.content)
+    ViewCompat.setOnApplyWindowInsetsListener(window.decorView) { v, insets ->
+      content.setPadding(0, 0, 0, insets.getInsets(WindowInsetsCompat.Type.ime()).bottom)
+      ViewCompat.onApplyWindowInsets(v, insets)
+    }
   }
 
   override fun onWindowFocusChanged(hasFocus: Boolean) {
