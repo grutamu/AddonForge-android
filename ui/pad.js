@@ -278,8 +278,9 @@
       return focusFirst();
     }
     if (detailId) {
+      // Back to the row the details came from, where it was in the list.
       closeDetail();
-      return focusFirst();
+      return current() || focusFirst();
     }
     if (body.dataset.tab !== "installed") {
       document.querySelector('.tab[data-tab="installed"]').click();

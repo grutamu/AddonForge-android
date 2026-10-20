@@ -606,6 +606,7 @@ let detailSeq = 0;
 let detailEntry = null;
 let detailFocus = null;
 let detailPackageKey = null; // installed addon shown in the details pane
+let listScroll = 0; // the list's place, lost while the lower screen hides it for the details
 // Mirrors pick_source in lib.rs: every source installs, Wago only with a key.
 function catalogInstallable(e) {
   return e.github || e.wowi || e.tukui || (e.wago && settings?.has_wago_key) || e.curse;
@@ -622,6 +623,7 @@ async function openDetail(id, installedPackage = null) {
     installed: true, desc: entry?.desc || installedPackage.notes || "",
     url: entryUrl(entry || {}) || installedPackage.source_url || "" } : entry;
   if (!e) return;
+  if (!detailId) listScroll = document.querySelector("main").scrollTop;
   detailFocus = document.activeElement;
   detailEntry = e;
   detailId = id || `package:${installedPackage.key}`;
@@ -673,7 +675,8 @@ function closeDetail() {
   detailPackageKey = null;
   markSelected();
   ++detailSeq;
-  detailFocus?.focus();
+  document.querySelector("main").scrollTop = listScroll;
+  detailFocus?.focus({ preventScroll: true });
 }
 function markSelected() {
   document.querySelectorAll("#installed-list .item").forEach((row) => row.classList.toggle("selected", row.dataset.key === detailPackageKey));
