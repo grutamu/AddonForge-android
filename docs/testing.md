@@ -9,8 +9,8 @@ How AddonForge for Android is tested. There are three layers:
 3. **Manual checks on the Thor:** anything that changes the game folder, plus
    the Android system screens.
 
-The commands below assume the toolchain from CONTRIBUTING.md (Rust with
-`aarch64-linux-android`, JDK 17, Android SDK + NDK, Node, adb).
+The commands below need Rust (with the `aarch64-linux-android` target),
+JDK 17, the Android SDK and NDK, Node 20 and adb. Run `npm ci` once first.
 
 ## 1. Host checks
 
