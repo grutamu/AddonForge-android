@@ -35,6 +35,8 @@ struct App {
     catalog: Mutex<Option<(Catalog, &'static str)>>,
     /// icon key -> data URL, for this run (disk cache underneath).
     icon_cache: Mutex<HashMap<String, Option<String>>>,
+    /// "key|source|installed version" -> release notes, for this run.
+    notes_cache: Mutex<HashMap<String, Vec<sources::Note>>>,
 }
 
 type Shared = Arc<App>;
@@ -50,6 +52,13 @@ pub struct MissingDep {
     pub folder: String,
     pub catalog_id: Option<String>,
     pub name: Option<String>,
+}
+
+/// The version an update replaced, which Roll back puts back.
+#[derive(Serialize, Clone, Debug)]
+pub struct BackupInfo {
+    pub version: Option<String>,
+    pub saved_at: u64,
 }
 
 #[derive(Serialize, Clone, Debug)]
@@ -87,6 +96,7 @@ pub struct Package {
     /// ok | update | unknown | no-source | no-key | error | checking
     pub status: String,
     pub note: String,
+    pub backup: Option<BackupInfo>,
 }
 
 fn addons_dir(install: &str) -> PathBuf {
@@ -391,6 +401,7 @@ fn build_packages(st: &AppState, cat: &Catalog, folders: &[AddonFolder]) -> Vec<
             update_available: false,
             status,
             note,
+            backup: None,
         });
     }
     out.sort_by(|a, b| a.name.to_ascii_lowercase().cmp(&b.name.to_ascii_lowercase()));
@@ -435,6 +446,15 @@ fn entry_hint(cat: &Catalog, pkg: &Package) -> (Option<String>, Option<bool>) {
     (entry.and_then(|e| e.asset_hint.clone()), entry.and_then(|e| e.forever))
 }
 
+/// Is the package on disk this release?
+fn is_current(pkg: &Package, version: &str) -> bool {
+    pkg.installed_version
+        .as_deref()
+        .map(|v| normalize_version(v) == normalize_version(version))
+        .unwrap_or(false)
+        || sources::names_every_version(version, &pkg.folder_versions)
+}
+
 async fn resolve_into(app: &App, pkg: &mut Package, cat: &Catalog) {
     let Some(mut src) = pkg.source.clone() else { return };
     let st = app.state.lock().await.clone();
@@ -466,12 +486,7 @@ async fn resolve_into(app: &App, pkg: &mut Package, cat: &Catalog) {
             if r.forever == Some(false) && vouched {
                 r.forever = None;
             }
-            let same = pkg
-                .installed_version
-                .as_deref()
-                .map(|v| normalize_version(v) == normalize_version(&r.version))
-                .unwrap_or(false)
-                || sources::names_every_version(&r.version, &pkg.folder_versions);
+            let same = is_current(pkg, &r.version);
             pkg.update_available = !same;
             pkg.status = if same { "ok".into() } else { "update".into() };
             pkg.note = match r.forever {
@@ -638,11 +653,22 @@ async fn current_install(app: &App) -> Result<String, String> {
 async fn scan_packages(app: &App) -> Result<Vec<Package>, String> {
     let install = current_install(app).await?;
     let cat = catalog_cached(app).await;
-    let folders = tokio::task::spawn_blocking(move || wow::scan_addons(Path::new(&install)))
-        .await
-        .map_err(err)?;
+    let (folders, backups) = tokio::task::spawn_blocking(move || {
+        (wow::scan_addons(Path::new(&install)), install::read_backups(&addons_dir(&install)))
+    })
+    .await
+    .map_err(err)?;
     let st = app.state.lock().await.clone();
-    Ok(build_packages(&st, &cat, &folders))
+    let mut pkgs = build_packages(&st, &cat, &folders);
+    for p in &mut pkgs {
+        p.backup = backups.get(&p.key).map(|b| BackupInfo { version: b.version.clone(), saved_at: b.saved_at });
+    }
+    Ok(pkgs)
+}
+
+/// The package with this key on disk now, if any.
+async fn on_disk(app: &App, key: &str) -> Option<Package> {
+    scan_packages(app).await.ok()?.into_iter().find(|p| p.key == key)
 }
 
 #[tauri::command]
@@ -660,12 +686,15 @@ async fn check_updates(app: State<'_, Shared>) -> Result<Vec<Package>, String> {
     Ok(pkgs)
 }
 
+/// `prev` is the package on disk now, if any: when the new release is a
+/// different version, the folders it replaces are kept for Roll back.
 async fn install_from(
     app: &App,
     key: &str,
     src: &Source,
     asset_hint: Option<&str>,
     allow_non_forever: bool,
+    prev: Option<&Package>,
 ) -> Result<Installed, String> {
     let install = current_install(app).await?;
     let addons = addons_dir(&install);
@@ -691,14 +720,23 @@ async fn install_from(
             loge!("download {key}: {e}");
             e.to_string()
         })?;
+    let keep = prev.filter(|p| !is_current(p, &remote.version)).map(|p| install::Keep {
+        key: key.to_string(),
+        version: p.installed_version.clone(),
+        record: st.installed.get(key).cloned(),
+    });
     let addons2 = addons.clone();
-    let folders = tokio::task::spawn_blocking(move || install::place(&zip, &addons2))
+    let placed = tokio::task::spawn_blocking(move || install::place(&zip, &addons2, keep))
         .await
         .map_err(err)?
         .map_err(|e| {
             loge!("place {key}: {e}");
             e.to_string()
         })?;
+    if placed.kept {
+        logi!("{key}: kept {} for Roll back", prev.and_then(|p| p.installed_version.as_deref()).unwrap_or("the previous version"));
+    }
+    let folders = placed.folders;
     let mut rec = Installed {
         source: src.kind().into(),
         source_id: src.id(),
@@ -747,12 +785,13 @@ async fn install_or_curse(
     curse_id: Option<u64>,
     asset_hint: Option<&str>,
     allow_non_forever: bool,
+    prev: Option<&Package>,
 ) -> Result<Installed, String> {
-    match install_from(app, key, src, asset_hint, allow_non_forever).await {
+    match install_from(app, key, src, asset_hint, allow_non_forever, prev).await {
         Err(e) if e == "NOT_FOREVER" && matches!(src, Source::Github(_)) => match curse_id {
             Some(c) => {
                 logi!("{key}: no Forever build on GitHub, trying CurseForge");
-                install_from(app, key, &Source::Curse(c), None, allow_non_forever).await
+                install_from(app, key, &Source::Curse(c), None, allow_non_forever, prev).await
             }
             None => Err(e),
         },
@@ -785,7 +824,7 @@ async fn update_package(
     let src = pkg.source.clone().ok_or_else(|| "This addon has no update source".to_string())?;
     let cat = catalog_cached(&app).await;
     let (hint, _) = entry_hint(&cat, &pkg);
-    install_or_curse(&app, &key, &src, pkg.curse_id, hint.as_deref(), allow_non_forever.unwrap_or(false)).await?;
+    install_or_curse(&app, &key, &src, pkg.curse_id, hint.as_deref(), allow_non_forever.unwrap_or(false), Some(&pkg)).await?;
     refreshed(&app, &key).await
 }
 
@@ -888,7 +927,8 @@ async fn install_catalog(
         return Err("This addon is on Wago: add your free Wago API key in Settings first".into());
     }
     let key = format!("cat:{}", e.id);
-    install_or_curse(&app, &key, &src, e.curse, e.asset_hint.as_deref(), allow_non_forever.unwrap_or(false)).await?;
+    let prev = on_disk(&app, &key).await;
+    install_or_curse(&app, &key, &src, e.curse, e.asset_hint.as_deref(), allow_non_forever.unwrap_or(false), prev.as_ref()).await?;
     refreshed(&app, &key).await
 }
 
@@ -901,7 +941,8 @@ async fn install_source(
     allow_non_forever: Option<bool>,
 ) -> Result<Package, String> {
     let key = key.unwrap_or_else(|| format!("{}:{}", source.kind(), source.id()));
-    install_from(&app, &key, &source, None, allow_non_forever.unwrap_or(false)).await?;
+    let prev = on_disk(&app, &key).await;
+    install_from(&app, &key, &source, None, allow_non_forever.unwrap_or(false), prev.as_ref()).await?;
     refreshed(&app, &key).await
 }
 
@@ -922,7 +963,8 @@ async fn install_github(
         .map(|e| format!("cat:{}", e.id))
         .unwrap_or_else(|| format!("github:{repo}"));
     let src = Source::Github(repo);
-    install_from(&app, &key, &src, None, allow_non_forever.unwrap_or(false)).await?;
+    let prev = on_disk(&app, &key).await;
+    install_from(&app, &key, &src, None, allow_non_forever.unwrap_or(false), prev.as_ref()).await?;
     refreshed(&app, &key).await
 }
 
@@ -935,10 +977,15 @@ async fn remove_package(app: State<'_, Shared>, key: String) -> Result<Vec<Strin
         .find(|p| p.key == key)
         .ok_or_else(|| "Addon not found".to_string())?;
     let addons = addons_dir(&install);
-    let gone = tokio::task::spawn_blocking(move || install::remove_folders(&addons, &pkg.folders))
-        .await
-        .map_err(err)?
-        .map_err(err)?;
+    let k = key.clone();
+    let gone = tokio::task::spawn_blocking(move || {
+        let gone = install::remove_folders(&addons, &pkg.folders)?;
+        install::remove_backup(&addons, &k);
+        Ok::<_, anyhow::Error>(gone)
+    })
+    .await
+    .map_err(err)?
+    .map_err(err)?;
     let mut st = app.state.lock().await;
     st.installed.remove(&key);
     st.pinned.remove(&key);
@@ -946,6 +993,54 @@ async fn remove_package(app: State<'_, Shared>, key: String) -> Result<Vec<Strin
     st.save().map_err(err)?;
     logi!("removed {key}: {:?}", gone);
     Ok(gone)
+}
+
+/// Roll back: put the version the last update replaced back, keeping the
+/// replaced one so a second restore undoes it. Rescans without a check.
+#[tauri::command]
+async fn restore_backup(app: State<'_, Shared>, key: String) -> Result<Package, String> {
+    let addons = addons_dir(&current_install(&app).await?);
+    let version = on_disk(&app, &key).await.and_then(|p| p.installed_version);
+    let record = app.state.lock().await.installed.get(&key).cloned();
+    let k = key.clone();
+    let back = tokio::task::spawn_blocking(move || install::restore(&addons, &k, version, record))
+        .await
+        .map_err(err)?
+        .map_err(|e| {
+            loge!("restore {key}: {e}");
+            e.to_string()
+        })?;
+    {
+        let mut st = app.state.lock().await;
+        match back.record {
+            Some(r) => st.installed.insert(key.clone(), r),
+            None => st.installed.remove(&key),
+        };
+        st.save().map_err(err)?;
+    }
+    logi!("restored {key} {}", back.version.as_deref().unwrap_or("(unknown version)"));
+    on_disk(&app, &key).await.ok_or_else(|| "Restored, but its folders didn't show up on rescan".to_string())
+}
+
+/// What changed in the releases newer than the installed one, from the
+/// addon's source. Empty when the source has no notes (CurseForge).
+#[tauri::command]
+async fn release_notes(app: State<'_, Shared>, key: String) -> Result<Vec<sources::Note>, String> {
+    let pkg = on_disk(&app, &key).await.ok_or_else(|| "Addon not found".to_string())?;
+    let Some(src) = pkg.source.clone() else { return Ok(Vec::new()) };
+    let installed = pkg.installed_version.clone();
+    let cache_key = format!("{key}|{}:{}|{}", src.kind(), src.id(), installed.as_deref().unwrap_or(""));
+    if let Some(n) = app.notes_cache.lock().await.get(&cache_key) {
+        return Ok(n.clone());
+    }
+    let st = app.state.lock().await.clone();
+    let opts = ResolveOpts { asset_hint: None, wago_key: st.wago_key.as_deref(), prerelease: st.allow_prerelease };
+    let notes = sources::release_notes(&app.client, &src, installed.as_deref(), opts).await.map_err(|e| {
+        loge!("notes {key}: {e}");
+        e.to_string()
+    })?;
+    app.notes_cache.lock().await.insert(cache_key, notes.clone());
+    Ok(notes)
 }
 
 // ---------------------------------------------------------------- import / export
@@ -1153,6 +1248,7 @@ fn make_app() -> Shared {
         state: Mutex::new(st),
         catalog: Mutex::new(None),
         icon_cache: Mutex::new(HashMap::new()),
+        notes_cache: Mutex::new(HashMap::new()),
     })
 }
 
@@ -1182,6 +1278,8 @@ pub fn run() {
             install_source,
             install_github,
             remove_package,
+            restore_backup,
+            release_notes,
             export_list,
             import_list,
             check_self_update,

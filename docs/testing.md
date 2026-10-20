@@ -26,7 +26,7 @@ every pull request and every push to `android` (`.github/workflows/build.yml`;
 Markdown-only changes skip it). The release workflow runs the UI checks and
 the security gate again before it builds.
 
-### `cargo test`: 23 tests
+### `cargo test`: 29 tests
 
 | Area | Test | What it proves |
 |---|---|---|
@@ -39,6 +39,8 @@ the security gate again before it builds.
 | CurseForge | `sources::curseforge::picks_newest_forever_release_before_betas`, `sources::curseforge::alpha_only_when_nothing_else_and_flags_non_forever`, `sources::curseforge::cdn_url_splits_the_id_and_encodes_the_name`, `curseforge_is_the_last_resort`, `state::tests::old_state_with_removed_fields_still_loads` | The cfwidget file pick and download URL, CurseForge is used only when no other source exists (but beats Wago without a key), and a state.json with the old `curse_unofficial` field still loads |
 | Install safety | `install::safety_scan_refuses_executables` | A zip with an executable (extension or `MZ` header) or a symlink is refused |
 | Install safety | `install::removing_a_folder_never_follows_a_link` | Removing an addon folder never deletes through a link (SavedVariables stay safe) |
+| Go back | `install::an_update_keeps_the_old_version_and_restore_swaps_them`, `install::a_failed_restore_puts_everything_back` | An update that changes the version keeps the replaced folders in `.addonforge-backup/`; going back swaps them in (removing folders the old version didn't have) and keeps the newer one, so a second go-back undoes the first; a backup missing a folder is unusable, and a go-back that fails halfway undoes every move |
+| Release notes | `sources::release_notes_become_plain_text`, `sources::cumulative_changelog_stops_at_the_installed_version`, `sources::long_notes_are_clipped_at_a_line_end`, `sources::github::notes_cover_the_releases_newer_than_the_installed_one` | BBCode (WoWInterface), Markdown and HTML notes become plain text; a whole-history changelog (WoWInterface, TukUI) stops at the installed version's entry; GitHub gives each release newer than the installed one; long notes are cut at a line end |
 | Sources | `sources::parses_github_inputs` | `owner/repo` and GitHub URLs parse |
 | Details pane | `icons::readme_image_skips_badges_and_resolves_relative`, `icons::html_image_prefers_camo_and_skips_badges`, `icons::excerpt_strips_markup` | The README picture and excerpt skip badges and come only through GitHub |
 | Update check | `selfupdate::android_release_names` | `android-YYYY.M.D[-n]` tags turn into the right release code; other tags are ignored |
@@ -50,8 +52,12 @@ No test touches the network or a real game folder.
 
 This loads `ui/app.js` up to its "boot" marker in a fake DOM and checks
 counts, which addons are eligible for updates, filters, search, HTML
-escaping, empty states, modal focus and cancel, and the addon actions in the
-details pane. It also fails if any `$("id")` in `ui/*.js` is missing from
+escaping, empty states, modal focus and cancel, the addon actions in the
+details pane, Update all (one addon at a time, the "no Forever build"
+question asked once at the end, accepted or declined, and a summary that
+counts updated, failed and skipped), release notes in the details (escaped,
+and CurseForge's "no notes" line), and going back to the previous version
+(it pins when that is older than the latest, and Undo unpins). It also fails if any `$("id")` in `ui/*.js` is missing from
 `index.html`, because the fake DOM would otherwise invent the element. Code
 that needs a real browser (MutationObserver, navigator, window listeners)
 lives below the boot marker or in `pad.js`, so this script doesn't cover it.
@@ -140,7 +146,10 @@ AddOns folder. Before trying them, back up
 | Game folder detection | Launch with the game in the default folder, in `Download/`, and (if you have one) on an SD card |
 | **writes** Install | Install one small addon (e.g. BlizzMove). It appears in My addons, `Interface/AddOns` has its folder(s) and no `.addonforge-tmp` is left behind, and it shows in the in-game addon list |
 | **writes** Update | Pin a version or install an older one, run Check, then Update. Only that addon's folders change |
-| **writes** Remove | Remove it. Only the folders it owns are deleted; `WTF/` is untouched |
+| **writes** Update all | With two or more updates waiting, press Update all: the pane shows "Updating 1 of N" with a progress bar, then a summary that matches what happened. An addon without a Forever build is asked about once, at the end |
+| **writes** Go back | After an update, the addon's details offer "Go back to <old version>". It puts the old folders back and pins the addon; `.addonforge-backup/` then holds the newer one, and Go back again (or Undo) returns to it |
+| Release notes | Open an addon with an update waiting: "What's new" shows the notes for GitHub, Wago, WoWInterface and TukUI addons, and a line saying there are none for CurseForge ones |
+| **writes** Remove | Remove it. Only the folders it owns are deleted, along with its `.addonforge-backup/` copy; `WTF/` is untouched |
 | Pad buttons | Press the physical buttons: A selects, B goes back, X runs the main action, Y opens search. The app follows Android's mapping, so with the Thor's ABXY layout mode switched, A and B swap |
 | Report on GitHub | Settings → Report on GitHub while signed out of GitHub in the browser: GitHub's sign-in page opens (not an error page) and the diagnostics are on the clipboard |
 | Export / Import | The system pickers and share sheet open, and an exported list imports back with the right plan |
@@ -190,3 +199,12 @@ catalogue addon's details, Back, and the keyboard in search and the Wago
 key field. The first keyboard after an `adb install` once showed a blank
 page until the next key press; it didn't happen again on fresh launches.
 Nothing was installed or removed.
+
+**2026-10-19, Update all progress, release notes, Go back.** Host checks:
+29 Rust tests, the UI checks and the security gate all passed. The
+release-notes code was also run once against the live WoWInterface, TukUI
+and GitHub APIs (WeakAuras, ElvUI) with a throwaway test, and gave clean
+notes cut at the installed version. On the Thor (top screen), the smoke
+test passed with no crash. No addon had an update waiting, and nothing was
+installed or updated, so the progress panel, What's new and Go back were
+not seen on the device.

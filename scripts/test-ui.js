@@ -31,8 +31,15 @@ const document = {
   addEventListener() {}, removeEventListener() {}, activeElement: element('previous'),
 };
 let detailReply;
+// Commands the tests answer: name -> (args) => reply (a value, or a rejected promise for an error).
+const handlers = {};
+const calls = [];
 const context = vm.createContext({
-  document, window: { __TAURI__: { core: { invoke(command) { if (command === "addon_details") return detailReply; } }, opener: {} } },
+  document, window: { __TAURI__: { core: { invoke(command, args) {
+    calls.push([command, args]);
+    if (handlers[command]) return handlers[command](args);
+    if (command === "addon_details") return detailReply;
+  } }, opener: {} } },
   setTimeout, clearTimeout, console,
 });
 const source = fs.readFileSync('ui/app.js', 'utf8').split('// ---------------------------------------------------------------- boot')[0];
@@ -105,5 +112,84 @@ assert.match(element('installed-list').innerHTML, /Discover addons/);
   finish({summary:'Late response'});
   await loading;
   assert.equal(element('detail-body').innerHTML, before, 'Closed dialogs ignore late responses');
-  console.log('UI checks passed: counts, eligible updates, filters, search, escaping, empty states, modal focus and cancellation, addon actions in the details pane.');
+
+  // Update all: one at a time, failures collected, the "no Forever build"
+  // question asked once at the end, and a summary that counts what happened.
+  const tick = () => new Promise((resolve) => setTimeout(resolve, 0));
+  const answerModal = async (yes) => {
+    for (let i = 0; i < 50 && !element('modal-yes').onclick; i++) await tick();
+    assert.ok(element('modal-yes').onclick, 'the question was asked');
+    const question = element('modal-text').innerHTML;
+    element(yes ? 'modal-yes' : 'modal-no').onclick();
+    return question;
+  };
+  const pkg = (key, extra = {}) => ({ key, name: key, folders: [key], source: { kind: 'github', id: 'a/' + key }, source_label: 'GitHub', status: 'update', supports_forever: true, missing_deps: [], installed_version: '1', remote_version: '2', ...extra });
+  const batchPackages = () => run(`packages = ${JSON.stringify([pkg('ok1'), pkg('bad <x>'), pkg('nofv'), pkg('ok2'), pkg('held', { pinned: true })])}; batch = null;`);
+  handlers.update_package = ({ key, allowNonForever }) => {
+    if (key === 'bad <x>') return Promise.reject('download refused');
+    if (key === 'nofv' && !allowNonForever) return Promise.reject('NOT_FOREVER');
+    return { ...pkg(key), status: 'ok', installed_version: '2' };
+  };
+  batchPackages();
+  calls.length = 0;
+  let updating = run('updateAll()');
+  assert.match(await answerModal(true), /<b>nofv<\/b>'s latest release does not list a Forever build/);
+  await updating;
+  assert.deepEqual(calls.filter(([c]) => c === 'update_package').map(([, a]) => `${a.key}${a.allowNonForever ? '!' : ''}`), ['ok1', 'bad <x>', 'nofv', 'ok2', 'nofv!'], 'one at a time, the pinned one skipped, the question answered at the end');
+  assert.match(element('batch').innerHTML, /3 updated · 1 failed/);
+  assert.match(element('batch').innerHTML, /<b>bad &lt;x&gt;<\/b>: download refused/);
+  assert.match(element('batch').innerHTML, /Show what needs attention/);
+  assert.equal(element('toast').textContent, 'Updated 3 of 4. 1 failed.');
+  assert.equal(run('packages.find((p) => p.key === "bad <x>").status'), 'error');
+  // Declining the question skips them, and the summary says so.
+  batchPackages();
+  handlers.update_package = ({ key, allowNonForever }) => (key === 'ok2' || allowNonForever ? { ...pkg(key), status: 'ok' } : Promise.reject('NOT_FOREVER'));
+  updating = run('updateAll()');
+  assert.match(await answerModal(false), /The latest releases of <b>ok1<\/b>, <b>bad &lt;x&gt;<\/b>, <b>nofv<\/b> do not/);
+  await updating;
+  assert.match(element('batch').innerHTML, /1 updated · 3 skipped/);
+  assert.match(element('batch').innerHTML, /Skipped, no Forever build: ok1, bad &lt;x&gt;, nofv/);
+  assert.equal(element('toast').textContent, 'Updated 1 of 4, skipped 3');
+  // A new check clears the summary.
+  handlers.check_updates = () => [];
+  await run('checkUpdates(true)');
+  assert.equal(element('batch').innerHTML, '');
+
+  // An addon with an update waiting shows what's new, escaped; a CurseForge one says it has no notes.
+  handlers.release_notes = () => [{ version: 'v2', text: 'Fixed <script> tags' }, { version: 'v1.5', text: 'Older' }];
+  run(`packages = [${JSON.stringify(pkg('notes'))}]`);
+  await run('openDetail(null, packages[0])');
+  await tick();
+  assert.match(element('detail-changes').innerHTML, /What's new in 2/);
+  assert.match(element('detail-changes').innerHTML, /<b>v2<\/b>\nFixed &lt;script&gt; tags/);
+  run('closeDetail()');
+  assert.equal(element('detail-changes').innerHTML, '');
+  handlers.release_notes = () => [];
+  run(`packages = [${JSON.stringify(pkg('cf', { source: { kind: 'curse', id: '1' } }))}]`);
+  await run('openDetail(null, packages[0])');
+  await tick();
+  assert.match(element('detail-changes').innerHTML, /CurseForge doesn't share release notes/);
+  run('closeDetail()');
+
+  // Go back: offered when there's a backup; going back past the latest pins it, and Undo unpins.
+  run(`packages = [${JSON.stringify(pkg('rb', { status: 'ok', installed_version: '2', backup: { version: '1 <old>', saved_at: 1 } }))}]`);
+  await run('openDetail(null, packages[0])');
+  assert.match(element('detail-actions').innerHTML, />Go back to 1 &lt;old&gt;</);
+  handlers.restore_backup = () => ({ ...pkg('rb'), status: 'unknown', installed_version: '1', remote_version: null, backup: { version: '2', saved_at: 2 } });
+  handlers.set_pin = () => undefined;
+  handlers.scan = () => [{ ...pkg('rb'), pinned: false, installed_version: '2', backup: { version: '1', saved_at: 3 } }];
+  calls.length = 0;
+  await run('packageAction("restore", packages[0], null)');
+  assert.equal(run('packages[0].status'), 'update', 'still knows 2 is the latest');
+  assert.equal(run('packages[0].pinned'), true);
+  assert.equal(JSON.stringify(calls.find(([c]) => c === 'set_pin')[1]), '{"key":"rb","pinned":true}');
+  assert.equal(element('snackbar-text').textContent, 'rb is back to 1 and pinned');
+  assert.match(element('detail-actions').innerHTML, />Go back to 2</);
+  calls.length = 0;
+  handlers.restore_backup = () => ({ ...pkg('rb'), status: 'unknown', installed_version: '2', pinned: true, remote_version: null });
+  await element('snackbar-undo').onclick();
+  assert.deepEqual(calls.filter(([c]) => c !== 'package_icons').map(([c, a]) => c === 'set_pin' ? `set_pin ${a.pinned}` : c), ['restore_backup', 'set_pin false', 'scan'], 'Undo restores again, then unpins');
+  assert.equal(run('packages[0].pinned'), false);
+  run('closeDetail(); packages = []');
+  console.log('UI checks passed: counts, eligible updates, filters, search, escaping, empty states, modal focus and cancellation, addon actions in the details pane, Update all progress and summary, release notes, going back to the previous version.');
 })().catch((error) => { console.error(error); process.exitCode = 1; });

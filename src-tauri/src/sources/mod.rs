@@ -106,6 +106,180 @@ pub async fn resolve(
     }
 }
 
+/// One release's notes. The sources hand back their raw text (Markdown,
+/// BBCode, HTML); `release_notes` turns it into plain text.
+#[derive(Serialize, Clone, Debug, PartialEq)]
+pub struct Note {
+    pub version: String,
+    pub text: String,
+}
+
+/// Longest text shown for one release; the addon's page has the rest.
+const NOTE_MAX: usize = 2500;
+
+/// What changed since `installed`, newest first. GitHub gives one note per
+/// newer release; WoWInterface and TukUI keep one changelog for every
+/// version, cut where the installed version's entry starts. CurseForge
+/// (through cfwidget) has none.
+pub async fn release_notes(
+    client: &reqwest::Client,
+    src: &Source,
+    installed: Option<&str>,
+    opts: ResolveOpts<'_>,
+) -> anyhow::Result<Vec<Note>> {
+    let (notes, cumulative) = match src {
+        Source::Github(repo) => (github::notes(client, repo, installed, opts.prerelease).await?, false),
+        Source::Wago(id) => (wago::notes(client, id, opts.wago_key, opts.prerelease).await?, false),
+        Source::Wowi(id) => (wowi::notes(client, *id).await?, true),
+        Source::Tukui(slug) => (tukui::notes(client, slug).await?, true),
+        Source::Curse(_) => (Vec::new(), false),
+    };
+    Ok(notes
+        .into_iter()
+        .map(|n| {
+            let text = plain_notes(&n.text);
+            let text = if cumulative { since(&text, installed) } else { text };
+            Note { version: n.version, text: clip(&text, NOTE_MAX) }
+        })
+        .filter(|n| !n.text.is_empty())
+        .collect())
+}
+
+/// A changelog that lists every version, newest first, up to the line that
+/// names the installed version (its own entry and everything older).
+pub fn since(text: &str, installed: Option<&str>) -> String {
+    let Some(v) = installed.filter(|v| !normalize_version(v).is_empty()) else { return text.to_string() };
+    let lines: Vec<&str> = text.lines().collect();
+    let first = lines.iter().position(|l| !l.trim().is_empty()).unwrap_or(0);
+    let v = [v.to_string()];
+    match lines.iter().enumerate().skip(first + 1).find(|(_, l)| names_every_version(l, &v)) {
+        Some((i, _)) => lines[..i].join("\n").trim_end().to_string(),
+        None => text.to_string(),
+    }
+}
+
+/// At most `max` characters, cut at a line end, with "…" when cut.
+fn clip(text: &str, max: usize) -> String {
+    if text.chars().count() <= max {
+        return text.to_string();
+    }
+    let end = text.char_indices().nth(max).map(|(i, _)| i).unwrap_or(text.len());
+    let cut = text[..end].rfind('\n').filter(|&i| i > end / 2).unwrap_or(end);
+    format!("{}\n…", text[..cut].trim_end())
+}
+
+/// Release notes as plain text: BBCode and HTML tags dropped (list items
+/// become bullets), Markdown headings, emphasis and links reduced to their
+/// text, entities decoded, blank runs collapsed.
+pub fn plain_notes(raw: &str) -> String {
+    let s = raw.replace("\r\n", "\n").replace('\r', "\n");
+    let s = strip_tags(&s, '[', ']', |name, closing| match name {
+        "*" => Some("\n• "),
+        "list" | "ul" | "ol" | "li" | "quote" | "code" | "center" | "indent" | "left" | "right" | "spoiler" => Some(if closing { "\n" } else { "" }),
+        "b" | "i" | "u" | "s" | "size" | "color" | "font" | "url" | "email" | "highlight" | "h1" | "h2" | "h3" => Some(""),
+        "img" | "youtube" => Some("\u{1}"),
+        _ => None,
+    });
+    // [img]…[/img]: the URL between the markers is no use as text.
+    let s = drop_marked(&s);
+    let s = strip_tags(&s, '<', '>', |name, closing| match name {
+        "br" | "p" | "div" | "ul" | "ol" | "tr" | "h1" | "h2" | "h3" | "h4" | "h5" | "h6" | "pre" | "details" | "summary" => Some("\n"),
+        "li" => Some(if closing { "" } else { "\n• " }),
+        _ if name.starts_with('!') => Some(""),
+        _ if name.chars().all(|c| c.is_ascii_alphanumeric()) && !name.is_empty() => Some(""),
+        _ => None,
+    });
+    let s = s
+        .replace("&nbsp;", " ")
+        .replace("&quot;", "\"")
+        .replace("&#39;", "'")
+        .replace("&lt;", "<")
+        .replace("&gt;", ">")
+        .replace("&amp;", "&");
+    let mut out: Vec<String> = Vec::new();
+    for line in s.lines() {
+        let body = line.trim();
+        let indent = (line.len() - line.trim_start().len()).min(6) / 2;
+        let body = if body.starts_with('#') { body.trim_start_matches('#').trim_start() } else { body };
+        let body = match body.get(..2) {
+            Some("* " | "- " | "+ ") => format!("• {}", body[2..].trim_start()),
+            _ => body.to_string(),
+        };
+        let body = md_inline(&body);
+        if body.is_empty() && out.last().map(|l| l.is_empty()).unwrap_or(true) {
+            continue;
+        }
+        out.push(format!("{}{}", " ".repeat(indent), body).trim_end().to_string());
+    }
+    out.join("\n").trim().to_string()
+}
+
+/// Remove `open…close` tags whose name `keep` knows, replacing each with
+/// what it returns; anything else (`[ October 2026 ]`, `a < b`) stays.
+fn strip_tags(s: &str, open: char, close: char, keep: impl Fn(&str, bool) -> Option<&'static str>) -> String {
+    let mut out = String::with_capacity(s.len());
+    let mut rest = s;
+    while let Some(i) = rest.find(open) {
+        out.push_str(&rest[..i]);
+        let after = &rest[i + 1..];
+        let tag = after.find(close).filter(|&j| j <= 400).map(|j| &after[..j]);
+        let replaced = tag.and_then(|t| {
+            let closing = t.starts_with('/');
+            let name = t.trim_start_matches('/');
+            let name = name.split(|c: char| c == '=' || c.is_whitespace() || c == '/').next().unwrap_or("");
+            let first_ok = name.starts_with(|c: char| c.is_ascii_alphabetic() || c == '*' || c == '!');
+            first_ok.then(|| keep(&name.to_ascii_lowercase(), closing)).flatten().map(|r| (r, t.len()))
+        });
+        match replaced {
+            Some((r, len)) => {
+                out.push_str(r);
+                rest = &after[len + 1..];
+            }
+            None => {
+                out.push(open);
+                rest = after;
+            }
+        }
+    }
+    out.push_str(rest);
+    out
+}
+
+/// Drop the text between pairs of \u{1} markers (and the markers).
+fn drop_marked(s: &str) -> String {
+    s.split('\u{1}').step_by(2).collect()
+}
+
+/// `**bold**`, `__bold__`, `` `code` `` and `[text](url)` to their text; images dropped.
+fn md_inline(s: &str) -> String {
+    let s = s.replace("**", "").replace("__", "").replace('`', "");
+    let mut out = String::with_capacity(s.len());
+    let mut rest = s.as_str();
+    while let Some(i) = rest.find('[') {
+        let image = rest[..i].ends_with('!');
+        let link = rest[i + 1..].find("](").and_then(|j| {
+            let text = &rest[i + 1..i + 1 + j];
+            let tail = &rest[i + 1 + j + 2..];
+            tail.find(')').filter(|_| !text.contains('[')).map(|k| (text, i + 1 + j + 2 + k + 1))
+        });
+        match link {
+            Some((text, end)) => {
+                out.push_str(&rest[..if image { i - 1 } else { i }]);
+                if !image {
+                    out.push_str(text);
+                }
+                rest = &rest[end..];
+            }
+            None => {
+                out.push_str(&rest[..=i]);
+                rest = &rest[i + 1..];
+            }
+        }
+    }
+    out.push_str(rest);
+    out
+}
+
 /// "v1.2.3" == "1.2.3" for update checks. Some packaged TOCs say "#1.2.3".
 pub fn normalize_version(v: &str) -> String {
     v.trim().trim_start_matches(['v', 'V', '#']).trim().to_ascii_lowercase()
@@ -171,5 +345,34 @@ mod tests {
         assert!(!names_every_version("v11.2.3", &v(&["1.2.3"])));
         assert!(names_every_version("Leatrix_Plus-1.60.20-forever", &v(&["1.60.20"])));
         assert!(!names_every_version("anything", &[]));
+    }
+
+    #[test]
+    fn release_notes_become_plain_text() {
+        let wowi = "[size=\"6\"][url=\"https://github.com/W/W/tree/5.22.1\"]5.22.1[/url] (2026-10-10)[/size]\r\n[url=\"https://x/compare/5.22.0...5.22.1\"]Full Changelog[/url]\r\nNnoggie (2):\r\n[list][*]Update <b>updater</b>[*]Fix [b]this[/b][/list]\r\n[img]https://x/y.png[/img]Done";
+        assert_eq!(plain_notes(wowi), "5.22.1 (2026-10-10)\nFull Changelog\nNnoggie (2):\n\n• Update updater\n• Fix this\n\nDone");
+        let md = "## What's Changed\n\n\n*   **Fixed** the `thing` in [#12](https://github.com/a/b/pull/12) &amp; more\n  - nested\n![shot](https://x/y.png)\n### Version 16.00 [ October 13th 2026 ]\n- [x] a < b";
+        assert_eq!(plain_notes(md), "What's Changed\n\n• Fixed the thing in #12 & more\n • nested\n\nVersion 16.00 [ October 13th 2026 ]\n• [x] a < b");
+        assert_eq!(plain_notes("<details><summary>More</summary><ul><li>one</li><li>two</li></ul></details>"), "More\n\n• one\n• two");
+    }
+
+    #[test]
+    fn cumulative_changelog_stops_at_the_installed_version() {
+        let log = "### Version 16.00 [ October 13th 2026 ]\n• big pass\n\n### Version 15.10 [ September 2026 ]\n• older\n### Version 15.09\n• oldest";
+        assert_eq!(since(log, Some("15.10")), "### Version 16.00 [ October 13th 2026 ]\n• big pass");
+        assert_eq!(since(log, Some("v15.09")), "### Version 16.00 [ October 13th 2026 ]\n• big pass\n\n### Version 15.10 [ September 2026 ]\n• older");
+        assert_eq!(since(log, Some("14.0")), log, "unknown version: the whole log");
+        assert_eq!(since(log, None), log);
+        assert_eq!(since(log, Some("16.00")), log, "the first line is the latest entry itself");
+    }
+
+    #[test]
+    fn long_notes_are_clipped_at_a_line_end() {
+        let text = (0..100).map(|i| format!("line {i}")).collect::<Vec<_>>().join("\n");
+        let c = clip(&text, 50);
+        assert!(c.ends_with("\n…"), "{c}");
+        assert!(c.len() < 60 && c.starts_with("line 0\nline 1"), "{c}");
+        assert_eq!(clip("short", 50), "short");
+        assert_eq!(clip("ééééééééé", 4), "éééé\n…", "cuts on a char boundary");
     }
 }

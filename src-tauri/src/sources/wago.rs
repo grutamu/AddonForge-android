@@ -4,17 +4,13 @@
 //! https://addons.wago.io/account/apikeys and the user pastes their own into
 //! Settings; it is stored locally and only ever sent to addons.wago.io.
 
-use super::Remote;
+use super::{Note, Remote};
 use serde_json::Value;
 
 pub const KEY_URL: &str = "https://addons.wago.io/account/apikeys";
 
-pub async fn resolve(
-    client: &reqwest::Client,
-    id: &str,
-    key: Option<&str>,
-    prerelease: bool,
-) -> anyhow::Result<Remote> {
+/// The release we'd install and its channel (stable | beta | alpha).
+async fn release(client: &reqwest::Client, id: &str, key: Option<&str>, prerelease: bool) -> anyhow::Result<(&'static str, Value)> {
     let key = key
         .map(str::trim)
         .filter(|k| !k.is_empty())
@@ -26,15 +22,25 @@ pub async fn resolve(
         404 => anyhow::bail!("Wago has no Forever release for this addon"),
         _ => {}
     }
-    let v: Value = resp.error_for_status()?.json().await?;
-    let recent = &v["recent_release"];
+    let mut v: Value = resp.error_for_status()?.json().await?;
+    let recent = v["recent_release"].take();
     // Stable first unless the user allows beta builds; alpha only as a last resort.
-    let order: &[&str] = if prerelease { &["beta", "stable", "alpha"] } else { &["stable", "beta", "alpha"] };
-    let (channel, rel) = order
+    let order: &[&'static str] = if prerelease { &["beta", "stable", "alpha"] } else { &["stable", "beta", "alpha"] };
+    order
         .iter()
         .map(|s| (*s, &recent[*s]))
         .find(|(_, r)| r.is_object())
-        .ok_or_else(|| anyhow::anyhow!("Wago lists no release for Forever"))?;
+        .map(|(s, r)| (s, r.clone()))
+        .ok_or_else(|| anyhow::anyhow!("Wago lists no release for Forever"))
+}
+
+pub async fn resolve(
+    client: &reqwest::Client,
+    id: &str,
+    key: Option<&str>,
+    prerelease: bool,
+) -> anyhow::Result<Remote> {
+    let (channel, rel) = release(client, id, key, prerelease).await?;
     let version = rel["label"]
         .as_str()
         .or_else(|| rel["version"].as_str())
@@ -55,4 +61,11 @@ pub async fn resolve(
         forever,
         prerelease: channel != "stable",
     })
+}
+
+/// The changelog of the release we'd install (Markdown).
+pub async fn notes(client: &reqwest::Client, id: &str, key: Option<&str>, prerelease: bool) -> anyhow::Result<Vec<Note>> {
+    let (_, rel) = release(client, id, key, prerelease).await?;
+    let version = rel["label"].as_str().or_else(|| rel["version"].as_str()).unwrap_or("").to_string();
+    Ok(rel["changelog"].as_str().map(|t| Note { version, text: t.to_string() }).into_iter().collect())
 }

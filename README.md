@@ -53,17 +53,18 @@ Shows everything in your AddOns folder, with the status of each addon.
 | **Needs Wago key** | The author only publishes on Wago. See [Wago key](#wago-key-optional) below. |
 | **Error** | The last check or update failed. Select the addon to see why. |
 
-- **Update all** updates every addon that has an update.
+- **Update all** updates every addon that has an update, one at a time. The side panel shows how far it has got, then what was updated and anything that failed.
 - **Check for updates** checks again. On this tab you can also press **Start**.
 - The **All / Updates / Needs attention** filters narrow the list. "Needs attention" collects anything with a problem, such as no source, a missing dependency or no Forever version.
 
-Select an addon to see its versions, a short description and what you can do with it:
+Select an addon to see its versions, a short description and what you can do with it. When an update is waiting, **What's new** shows the author's release notes, so you can decide before you update (CurseForge doesn't share them, so its addons don't have this).
 
 ![An addon's details: where it comes from, its version and its description](docs/screenshots/addon-details.png)
 
 | Option | What it does |
 |---|---|
 | **Update** / **Reinstall** | Download the latest release, or the current one again. |
+| **Go back to …** | Shown after an update. Puts back the version you had before and pins it, in case the update broke something. The newer version is kept too, so you can switch back. |
 | **Pin version** | Keep it at this version. **Update all** skips it until you press **Allow updates**. |
 | **Ignore** | Hide it and stop checking it for updates. Tick **Show ignored** to see it again. |
 | **Remove** | Delete its folders. Its saved settings in `WTF` stay, so they come back if you reinstall it. |
@@ -145,6 +146,9 @@ Only APKs from this project's [releases page](https://github.com/grutamu/AddonFo
 
 **Does it work on other Android devices?**
 It's made and tested for the AYN Thor, on either screen: on the smaller bottom screen the list takes the full width and an addon's details open in its place. Other landscape Android handhelds may work, but nobody has tested them.
+
+**Where does "Go back" keep the old version?**
+In `Interface/AddOns/.addonforge-backup`, one earlier version per addon. WoW doesn't load anything from there. Removing an addon deletes its copy too.
 
 **Does removing an addon delete my settings for it?**
 No. Settings are saved in the game's `WTF` folder, which AddonForge never touches.

@@ -1,6 +1,6 @@
 //! TukUI (ElvUI / Tukui) public API. No key needed.
 
-use super::Remote;
+use super::{Note, Remote};
 use serde::Deserialize;
 
 #[derive(Deserialize, Debug)]
@@ -11,15 +11,22 @@ struct TukAddon {
     url: String,
     #[serde(default)]
     patch: Vec<String>,
+    /// A Markdown file with every version's notes, newest first.
+    #[serde(default)]
+    changelog_url: String,
 }
 
-pub async fn resolve(client: &reqwest::Client, slug: &str) -> anyhow::Result<Remote> {
+async fn addon(client: &reqwest::Client, slug: &str) -> anyhow::Result<TukAddon> {
     let url = format!("https://api.tukui.org/v1/addon/{slug}");
     let resp = client.get(&url).send().await?;
     if resp.status().as_u16() == 404 {
         anyhow::bail!("TukUI has no addon '{slug}'");
     }
-    let a: TukAddon = resp.error_for_status()?.json().await?;
+    Ok(resp.error_for_status()?.json().await?)
+}
+
+pub async fn resolve(client: &reqwest::Client, slug: &str) -> anyhow::Result<Remote> {
+    let a = addon(client, slug).await?;
     if a.url.is_empty() {
         anyhow::bail!("TukUI entry has no download url");
     }
@@ -31,4 +38,14 @@ pub async fn resolve(client: &reqwest::Client, slug: &str) -> anyhow::Result<Rem
         forever,
         prerelease: false,
     })
+}
+
+/// The addon's changelog: every version, newest first.
+pub async fn notes(client: &reqwest::Client, slug: &str) -> anyhow::Result<Vec<Note>> {
+    let a = addon(client, slug).await?;
+    if !a.changelog_url.starts_with("https://") {
+        return Ok(Vec::new());
+    }
+    let text = client.get(&a.changelog_url).send().await?.error_for_status()?.text().await?;
+    Ok(vec![Note { version: a.version, text }])
 }

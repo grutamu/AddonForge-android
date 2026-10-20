@@ -187,7 +187,7 @@ function renderInstalled() {
   document.querySelectorAll("#view-chips .fchip").forEach((b) => { b.querySelector("b").textContent = counts[b.dataset.value] ?? ""; });
   $("pane-folder").textContent = settings?.install_path ? `Game folder: ${settings.install_path.replace(/^\/storage\/emulated\/0\//, "")}` : "No game folder yet";
   const eligible = packages.filter((p) => p.status === "update" && !p.pinned && !p.ignored).length;
-  $("btn-update-all").textContent = eligible ? `Update all (${eligible})` : "Update all";
+  $("btn-update-all").textContent = batch?.running && !batch.waiting ? `Updating ${batch.at} of ${batch.total}…` : eligible ? `Update all (${eligible})` : "Update all";
   if (!packages.length) {
     list.innerHTML = `<div class="empty"><strong>No addons found</strong>Nothing in this installation's AddOns folder yet.<br><button class="btn" data-navigate="browse">Discover addons</button></div>`;
     $("summary").textContent = "";
@@ -313,6 +313,38 @@ async function packageAction(act, p, btn, undoing = false) {
       snackbar(`${now.name} ${done}`, () => packageAction(act, now, btn, true));
     }
   }
+  if (act === "restore") {
+    setBusy(true);
+    try {
+      const fresh = await invoke("restore_backup", { key });
+      // What we know of the latest release still holds; the version changed.
+      Object.assign(fresh, { remote_version: p.remote_version, remote_forever: p.remote_forever, remote_prerelease: p.remote_prerelease });
+      if (p.remote_version && fresh.source) {
+        const same = sameVersion(fresh.installed_version, p.remote_version);
+        Object.assign(fresh, { status: same ? "ok" : "update", update_available: !same, note: "" });
+      }
+      // Rolled back past the latest: pin it, or Update all would undo it.
+      const pin = !undoing && fresh.status === "update" && !fresh.pinned;
+      if (pin) {
+        await invoke("set_pin", { key, pinned: true });
+        fresh.pinned = true;
+      }
+      const i = packages.findIndex((x) => x.key === key);
+      if (i >= 0) packages[i] = fresh;
+      renderInstalled();
+      const now = `${fresh.name} is back to ${fresh.installed_version || "its previous version"}`;
+      if (undoing) toast(now);
+      else
+        snackbar(pin ? `${now} and pinned` : now, async () => {
+          await packageAction("restore", fresh, btn, true);
+          if (pin) await packageAction("pin", packages.find((x) => x.key === key) || fresh, btn, true);
+        });
+    } catch (err) {
+      toast(explainError(err), true);
+    } finally {
+      setBusy(false);
+    }
+  }
   if (act === "remove") {
     const ok = await confirmModal(`<p>Remove <b>${esc(p.name)}</b>?</p><p class="muted">Deletes: ${esc(p.folders.join(", "))}.<br>Your saved settings for it (in WTF) are left alone.</p>`, "Remove");
     if (!ok) return;
@@ -342,37 +374,44 @@ function snackbar(text, undo) {
   snackTimer = setTimeout(() => $("snackbar").classList.add("hidden"), 6000);
 }
 
+const normVersion = (v) => String(v ?? "").trim().replace(/^[vV#]+/, "").trim().toLowerCase();
+const sameVersion = (a, b) => !!normVersion(a) && normVersion(a) === normVersion(b);
+
 function explainError(err) {
   const s = String(err);
   if (s.startsWith("SAFETY:")) return s.replace("SAFETY: refused, ", "Refused for safety: ");
   return s;
 }
 
-async function updateOne(p, allowNonForever = false) {
-  setBusy(true);
+// One update, no toasts or questions: { ok: package } | { notForever: true } | { error }.
+async function runUpdate(p, allowNonForever) {
   p.status = "checking";
   renderInstalled();
   try {
     const fresh = await invoke("update_package", { key: p.key, allowNonForever });
     const i = packages.findIndex((x) => x.key === p.key);
     if (i >= 0) packages[i] = fresh;
-    toast(`${fresh.name} is now ${fresh.installed_version || "installed"}`);
+    return { ok: fresh };
   } catch (err) {
     if (String(err) === "NOT_FOREVER") {
       p.status = "update";
-      renderInstalled();
-      setBusy(false);
-      const ok = await confirmModal(`<p><b>${esc(p.name)}</b>'s latest release does not list a Forever build.</p><p class="muted">It may still work, or it may error in game. Install it anyway?</p>`, "Install anyway");
-      if (ok) return updateOne(p, true);
-      return;
+      return { notForever: true };
     }
     p.status = "error";
     p.note = explainError(err);
-    toast(explainError(err), true);
+    return { error: p.note };
   } finally {
-    setBusy(false);
     renderInstalled();
   }
+}
+
+async function updateOne(p, allowNonForever = false) {
+  setBusy(true);
+  const r = await runUpdate(p, allowNonForever);
+  setBusy(false);
+  if (r.ok) toast(`${r.ok.name} is now ${r.ok.installed_version || "installed"}`);
+  else if (r.error) toast(r.error, true);
+  else if (await confirmModal(`<p><b>${esc(p.name)}</b>'s latest release does not list a Forever build.</p><p class="muted">It may still work, or it may error in game. Install it anyway?</p>`, "Install anyway")) return updateOne(p, true);
 }
 
 /// keepStatus: re-scan but keep remote versions we already know.
@@ -413,6 +452,8 @@ async function checkUpdates(quiet = false) {
     return;
   }
   setBusy(true);
+  batch = null;
+  renderBatch();
   $("btn-check").innerHTML = '<span class="spinner"></span> Checking…';
   packages.forEach((p) => {
     if (p.source && p.status !== "no-key" && !p.ignored) p.status = "checking";
@@ -433,10 +474,70 @@ async function checkUpdates(quiet = false) {
   }
 }
 
+// Update all: one addon at a time, its progress in the pane. Addons whose
+// latest release has no Forever build wait for one question at the end, and
+// the pane keeps a summary of what happened until the next check.
+let batch = null; // { running, at, total, name, again, waiting } or { updated, failed, skipped }
+const plural = (n, word) => `${n} ${word}${n === 1 ? "" : "s"}`;
+function renderBatch() {
+  const box = $("batch");
+  box.classList.toggle("hidden", !batch);
+  if (!batch) return (box.innerHTML = "");
+  if (batch.running) {
+    box.innerHTML = batch.waiting
+      ? `<div>${plural(batch.waiting, "addon")} without a Forever build: install anyway?</div>`
+      : `<div><span class="spinner"></span> ${batch.again ? "Installing" : "Updating"} ${batch.at} of ${batch.total}: <b>${esc(batch.name)}</b></div><progress max="${batch.total}" value="${batch.at - 1}"></progress>`;
+    return;
+  }
+  const { updated, failed, skipped } = batch;
+  const shown = failed.slice(0, 3);
+  box.innerHTML =
+    `<div class="batch-sum${failed.length ? " bad" : ""}">${[`${updated.length} updated`, failed.length && `${failed.length} failed`, skipped.length && `${skipped.length} skipped`].filter(Boolean).join(" · ")}</div>` +
+    (shown.length ? `<ul>${shown.map((f) => `<li><b>${esc(f.name)}</b>: ${esc(f.error)}</li>`).join("")}${failed.length > shown.length ? `<li>and ${failed.length - shown.length} more</li>` : ""}</ul>` : "") +
+    (skipped.length ? `<div class="muted">Skipped, no Forever build: ${skipped.map(esc).join(", ")}</div>` : "") +
+    (failed.length ? `<button class="btn small" data-batch-attention>Show what needs attention</button>` : "");
+}
+$("batch").addEventListener("click", (e) => {
+  if (!e.target.closest("[data-batch-attention]")) return;
+  activeFilter = "attention";
+  setChip("view-chips", "attention");
+  renderInstalled();
+});
+
 async function updateAll() {
   const todo = packages.filter((p) => p.status === "update" && !p.pinned && !p.ignored);
-  for (const p of todo) await updateOne(p);
-  toast(`Updated ${todo.length} addon${todo.length === 1 ? "" : "s"}`);
+  if (!todo.length || busy) return;
+  const updated = [], failed = [], notForever = [];
+  let skipped = [];
+  const run = async (list, again) => {
+    for (const [i, p] of list.entries()) {
+      batch = { running: true, at: i + 1, total: list.length, name: p.name, again };
+      renderBatch();
+      const r = await runUpdate(p, again);
+      if (r.ok) updated.push(r.ok.name);
+      else if (r.notForever) notForever.push(p);
+      else failed.push({ name: p.name, error: r.error });
+    }
+  };
+  setBusy(true);
+  try {
+    await run(todo, false);
+    if (notForever.length) {
+      batch = { running: true, waiting: notForever.length };
+      renderBatch();
+      const names = notForever.map((p) => `<b>${esc(p.name)}</b>`).join(", ");
+      const ok = await confirmModal(`<p>${notForever.length === 1 ? `${names}'s latest release does` : `The latest releases of ${names} do`} not list a Forever build.</p><p class="muted">${notForever.length === 1 ? "It" : "They"} may still work, or may error in game. Install anyway?</p>`, "Install anyway");
+      if (ok) await run(notForever.slice(), true);
+      else skipped = notForever.map((p) => p.name);
+    }
+  } finally {
+    batch = { updated, failed, skipped };
+    setBusy(false);
+    renderInstalled();
+    renderBatch();
+  }
+  const msg = `Updated ${updated.length === todo.length ? plural(updated.length, "addon") : `${updated.length} of ${todo.length}`}`;
+  toast(failed.length ? `${msg}. ${failed.length} failed.` : skipped.length ? `${msg}, skipped ${skipped.length}` : msg, failed.length > 0);
 }
 
 // Check re-reads the AddOns folder first, so there is no separate Rescan.
@@ -566,6 +667,7 @@ async function openDetail(id, installedPackage = null) {
 }
 function closeDetail() {
   $("detail").classList.add("hidden");
+  loadNotes(null);
   detailId = null;
   detailEntry = null;
   detailPackageKey = null;
@@ -581,6 +683,7 @@ function markSelected() {
 function renderPackageActions() {
   const box = $("detail-actions");
   const p = detailPackageKey && packages.find((x) => x.key === detailPackageKey);
+  loadNotes(p);
   if (!p) {
     box.innerHTML = "";
     return;
@@ -598,10 +701,38 @@ function renderPackageActions() {
   box.innerHTML = `<div class="pkg-status">${badge(p)} <span class="muted">${versions}</span></div>${notes}<div class="act-list">` +
     (canUpdate && p.status === "update" && !p.pinned ? act("update", "Update", `To ${esc(p.remote_version || "the latest")}`, "primary") : "") +
     (canUpdate && !(p.status === "update" && !p.pinned) ? act("update", p.status === "update" ? "Update" : p.managed ? "Reinstall" : "Install", p.status === "update" ? "Pinned, so Update all skips it" : "Download the current release again") : "") +
+    (p.backup ? act("restore", `Go back to ${esc(p.backup.version || "the previous version")}`, "The version you had before the last update. Keeps this one, so you can switch again") : "") +
     act("pin", p.pinned ? "Allow updates" : "Pin version", p.pinned ? "Let Update all update it again" : `Hold at ${esc(p.installed_version || "this version")}; Update all skips it`) +
     act("ignore", p.ignored ? "Unignore" : "Ignore", p.ignored ? "Show it and check it for updates again" : "Hide it and stop checking for updates") +
     act("remove", "Remove", "Deletes its folders; settings in WTF are kept", "danger") +
     `</div>`;
+}
+// What changed since the installed version, while an update is waiting:
+// fetched once per addon and release when its details open.
+let notesFor = null; // "key|remote version" shown or loading in #detail-changes
+async function loadNotes(p) {
+  const want = p && p.status === "update" && p.source ? `${p.key}|${p.remote_version}` : null;
+  if (want === notesFor) return;
+  notesFor = want;
+  const box = $("detail-changes");
+  if (!want) return (box.innerHTML = "");
+  box.innerHTML = `<div class="muted"><span class="spinner"></span> Reading what's new\u2026</div>`;
+  let notes = null;
+  let failed = false;
+  try {
+    notes = await invoke("release_notes", { key: p.key });
+  } catch (_) {
+    failed = true;
+  }
+  if (notesFor === want) box.innerHTML = renderNotes(p, notes, failed);
+}
+function renderNotes(p, notes, failed) {
+  const head = `<div class="notes-head">What's new${p.remote_version ? ` in ${esc(p.remote_version)}` : ""}</div>`;
+  if (!notes?.length) {
+    const why = failed ? "Couldn't read the release notes." : p.source?.kind === "curse" ? "CurseForge doesn't share release notes with AddonForge." : "This release has no notes.";
+    return `${head}<div class="muted">${why} Its page may have them.</div>`;
+  }
+  return head + notes.map((n) => `<div class="notes">${notes.length > 1 ? `<b>${esc(n.version)}</b>\n` : ""}${esc(n.text)}</div>`).join("");
 }
 $("detail-actions").addEventListener("click", async (e) => {
   const btn = e.target.closest("button[data-act]");

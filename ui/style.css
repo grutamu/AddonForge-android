@@ -265,6 +265,16 @@ body[data-tab=installed] .pane-home-installed, body[data-tab=browse] .pane-home-
 .pane-tools .toolbar.sub { padding: 0; flex-direction: column; align-items: stretch; gap: 8px; }
 .pane-tools .toolbar.sub .lbl { font-size: 13px; }
 .pane-actions { position: sticky; bottom: 0; padding: 12px 0 14px; background: var(--bg-2); }
+/* Update all: progress while it runs, then what happened */
+.batch { margin: 10px 0 0; padding: 10px 12px; border: 1px solid var(--line-2); border-radius: 8px; background: var(--bg-3); font-size: 14px; overflow-wrap: anywhere; }
+.batch progress { display: block; width: 100%; height: 6px; margin-top: 8px; appearance: none; border: 0; border-radius: 3px; background: var(--line); overflow: hidden; }
+.batch progress::-webkit-progress-bar { background: var(--line); }
+.batch progress::-webkit-progress-value { background: var(--accent); transition: width .2s; }
+.batch-sum { font-weight: 600; color: var(--ok); }
+.batch-sum.bad { color: var(--bad); }
+.batch ul { margin: 6px 0 0; padding-left: 18px; font-size: 13px; color: var(--muted); }
+.batch .muted { margin-top: 6px; font-size: 13px; }
+.batch .btn { margin-top: 8px; width: 100%; }
 .pane-actions .btn { width: 100%; }
 
 /* details shown in the pane instead of a window */
@@ -282,6 +292,13 @@ body[data-tab=installed] .pane-home-installed, body[data-tab=browse] .pane-home-
 .detail-card .row.right { position: sticky; bottom: 0; margin: 0 -16px; padding: 10px 16px 14px; background: var(--bg-2); flex-wrap: nowrap; }
 .detail-card .row.right .btn { flex: 1; }
 #detail-note:empty { display: none; }
+/* what's new in the waiting update */
+.detail-changes:empty { display: none; }
+.detail-changes { margin: 4px 0 12px; padding: 10px 12px; border-left: 3px solid var(--accent); background: var(--bg-3); border-radius: 0 6px 6px 0; }
+.notes-head { font-weight: 600; font-size: 14px; color: var(--accent-2); margin-bottom: 4px; }
+.notes { white-space: pre-wrap; font-size: 13px; line-height: 1.5; color: var(--text); overflow-wrap: anywhere; }
+.notes + .notes { margin-top: 10px; }
+.detail-changes .muted { font-size: 13px; }
 .pkg-status { display: flex; flex-wrap: wrap; align-items: center; gap: 6px 10px; margin: 4px 0 8px; font-size: 14px; }
 .pkg-status .muted { font-size: 14px; }
 .pkg-status .badge { font-size: 14px; }
@@ -415,6 +432,8 @@ body[data-tab=settings] .snackbar { max-width: calc(100vw - var(--rail) - 32px);
   #last-checked { grid-area: 2 / 1; font-size: 12px; white-space: nowrap; overflow: hidden; text-overflow: ellipsis; }
   #btn-check { grid-area: 1 / 2 / 3 / 3; }
   .pane-home-installed .pane-actions { grid-area: 1 / 3 / 3 / 4; position: static; padding: 0; }
+  .batch { grid-column: 1 / -1; margin: 8px 0 0; padding: 8px 10px; font-size: 13px; }
+  .batch ul { display: none; }
   .pane-home-browse .pane-tools { flex-direction: row; align-items: center; gap: 8px; margin: 0; }
   .pane-tools .toolbar.sub { flex: 1; flex-direction: row; align-items: center; min-width: 0; }
   #gh-repo { flex: 1; min-width: 0; min-height: 42px; }

@@ -8,7 +8,7 @@
 //! unauthenticated). With pre-releases allowed we must use the API to list
 //! releases (the `latest` redirect never points at a pre-release).
 
-use super::Remote;
+use super::{names_every_version, normalize_version, Note, Remote};
 use serde::Deserialize;
 
 #[derive(Deserialize, Debug)]
@@ -47,6 +47,8 @@ struct ApiRelease {
     draft: bool,
     #[serde(default)]
     assets: Vec<ApiAsset>,
+    #[serde(default)]
+    body: Option<String>,
 }
 
 #[derive(Deserialize, Debug)]
@@ -207,4 +209,60 @@ pub async fn resolve(
     }
     let rel: ApiRelease = resp.error_for_status()?.json().await?;
     from_api_release(client, rel, asset_hint).await
+}
+
+/// Notes of the releases newer than `installed` (at most five), from one
+/// API call. When the installed version isn't among them, only the latest.
+pub async fn notes(
+    client: &reqwest::Client,
+    repo: &str,
+    installed: Option<&str>,
+    prerelease: bool,
+) -> anyhow::Result<Vec<Note>> {
+    let repo = repo.trim().trim_matches('/');
+    let api = format!("https://api.github.com/repos/{repo}/releases?per_page=10");
+    let resp = client
+        .get(&api)
+        .header("Accept", "application/vnd.github+json")
+        .send()
+        .await?;
+    if let Some(e) = api_error(resp.status().as_u16(), repo) {
+        return Err(e);
+    }
+    let list: Vec<ApiRelease> = resp.error_for_status()?.json().await?;
+    Ok(newer_notes(list, installed, prerelease))
+}
+
+fn newer_notes(list: Vec<ApiRelease>, installed: Option<&str>, prerelease: bool) -> Vec<Note> {
+    let rels: Vec<ApiRelease> = list.into_iter().filter(|r| !r.draft && (prerelease || !r.prerelease)).collect();
+    let is_installed = |r: &ApiRelease| {
+        installed
+            .map(|v| normalize_version(v) == normalize_version(&r.tag_name) || names_every_version(&r.tag_name, &[v.to_string()]))
+            .unwrap_or(false)
+    };
+    let n = rels.iter().position(is_installed).unwrap_or(1).min(5);
+    rels.into_iter()
+        .take(n)
+        .map(|r| Note { version: r.tag_name, text: r.body.unwrap_or_default() })
+        .collect()
+}
+
+#[cfg(test)]
+mod tests {
+    use super::*;
+
+    fn rel(tag: &str, pre: bool) -> ApiRelease {
+        ApiRelease { tag_name: tag.into(), prerelease: pre, draft: false, assets: Vec::new(), body: Some(format!("notes {tag}")) }
+    }
+
+    #[test]
+    fn notes_cover_the_releases_newer_than_the_installed_one() {
+        let list = || vec![rel("v3.0-beta", true), rel("v2.1", false), rel("v2.0", false), rel("v1.9", false)];
+        let tags = |n: Vec<Note>| n.into_iter().map(|n| n.version).collect::<Vec<_>>();
+        assert_eq!(tags(newer_notes(list(), Some("2.0"), false)), vec!["v2.1"]);
+        assert_eq!(tags(newer_notes(list(), Some("v1.9"), false)), vec!["v2.1", "v2.0"]);
+        assert_eq!(tags(newer_notes(list(), Some("1.9"), true)), vec!["v3.0-beta", "v2.1", "v2.0"]);
+        assert_eq!(tags(newer_notes(list(), Some("0.1"), false)), vec!["v2.1"], "unknown version: the latest only");
+        assert_eq!(tags(newer_notes(list(), Some("2.1"), false)), Vec::<String>::new(), "up to date: nothing new");
+    }
 }
