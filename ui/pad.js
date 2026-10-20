@@ -56,7 +56,8 @@
   };
 
   let wanted = null;
-  function focus(el) {
+  // `dir` is the pad direction that got here (from move only).
+  function focus(el, dir) {
     if (!el) return;
     wanted = el;
     // Passing over a text box with the pad shouldn't open the keyboard (on the
@@ -64,8 +65,30 @@
     if (el.matches(TEXT)) el.inputMode = "none";
     el.focus({ preventScroll: true });
     el.scrollIntoView({ block: "nearest", inline: "nearest" });
+    // The last thing to focus that way: show the rest of the page that way too
+    // (the text under the last link, the top above the search box).
+    const box = scroller(el);
+    if (box && (dir === "UP" || dir === "DOWN") && !nearest(el, dir, candidates().filter((c) => box.contains(c)))) reveal(box, el, dir === "DOWN");
     remember(el);
   }
+  // The element the page scrolls in around `el` (main, a dialog's card), if any.
+  function scroller(el) {
+    for (let p = el.parentElement; p && p !== body; p = p.parentElement) {
+      const o = getComputedStyle(p).overflowY;
+      if ((o === "auto" || o === "scroll") && p.scrollHeight > p.clientHeight + 1) return p;
+    }
+    return null;
+  }
+  // Scroll `box` towards its end as far as it goes with `el` still in sight.
+  function reveal(box, el, down) {
+    const b = box.getBoundingClientRect(), r = el.getBoundingClientRect();
+    const room = down ? r.top - b.top - 8 : b.bottom - r.bottom - 8;
+    if (room > 0) box.scrollTop += down ? room : -room;
+  }
+  const inSightOf = (box, el) => {
+    const b = box.getBoundingClientRect(), r = el.getBoundingClientRect();
+    return r.bottom > b.top && r.top < b.bottom;
+  };
   // The first D-pad press after touching the screen never reaches the app:
   // Android spends it leaving touch mode, and the WebView moves DOM focus to
   // the first tab (it does the same when the keyboard opens). A tab gaining
@@ -100,17 +123,27 @@
     const cur = padStarted && current();
     padStarted = true;
     if (!cur) return focusFirst();
-    const r = cur.getBoundingClientRect();
-    const cx = r.left + r.width / 2, cy = r.top + r.height / 2;
-    const gap = (a1, a2, b1, b2) => Math.max(0, a1 - b2, b1 - a2);
     const vertical = dir === "UP" || dir === "DOWN";
     // Up and down inside the side pane stay in it (its text is read by
     // scrolling, not by jumping to the list); Left and Back leave it.
     // On the lower screen that is only the details: the bar under the list is
     // part of it.
     if (vertical && scope() === body && $("pane").contains(cur) && (!NARROW.matches || fullDetail())) return paneMove(dir === "DOWN", cur);
+    const box = scroller(cur);
+    // The step scrolling below can take the focus out of sight: bring it back first.
+    if (vertical && box && !inSightOf(box, cur)) return focus(cur);
+    const best = nearest(cur, dir, candidates());
+    if (best) return focus(best, dir);
+    // Nothing more to focus that way: keep scrolling the page a step at a time.
+    if (vertical && box) box.scrollBy({ top: (dir === "DOWN" ? 1 : -1) * Math.round(box.clientHeight * 0.6), behavior: "smooth" });
+  }
+  function nearest(cur, dir, pool) {
+    const r = cur.getBoundingClientRect();
+    const cx = r.left + r.width / 2, cy = r.top + r.height / 2;
+    const gap = (a1, a2, b1, b2) => Math.max(0, a1 - b2, b1 - a2);
+    const vertical = dir === "UP" || dir === "DOWN";
     let best = null, bestScore = Infinity;
-    for (const el of candidates()) {
+    for (const el of pool) {
       if (el === cur) continue;
       const c = el.getBoundingClientRect();
       const ex = c.left + c.width / 2, ey = c.top + c.height / 2;
@@ -127,7 +160,7 @@
       const score = along + side * 4 + (vertical ? Math.abs(ex - cx) * 0.05 : Math.abs(ey - cy) * 0.05);
       if (score < bestScore) { best = el; bestScore = score; }
     }
-    if (best) focus(best);
+    return best;
   }
 
   // Reading the side pane with the stick. While there is more text that way,
