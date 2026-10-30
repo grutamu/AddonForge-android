@@ -26,7 +26,7 @@ every pull request and every push to `android` (`.github/workflows/build.yml`;
 Markdown-only changes skip it). The release workflow runs the UI checks and
 the security gate again before it builds.
 
-### `cargo test`: 30 tests
+### `cargo test`: 35 tests
 
 | Area | Test | What it proves |
 |---|---|---|
@@ -41,6 +41,7 @@ the security gate again before it builds.
 | Install safety | `install::safety_scan_refuses_executables` | A zip with an executable (extension or `MZ` header) or a symlink is refused |
 | Install safety | `install::removing_a_folder_never_follows_a_link` | Removing an addon folder never deletes through a link (SavedVariables stay safe) |
 | Go back | `install::an_update_keeps_the_old_version_and_restore_swaps_them`, `install::a_failed_restore_puts_everything_back` | An update that changes the version keeps the replaced folders in `.addonforge-backup/`; going back swaps them in (removing folders the old version didn't have) and keeps the newer one, so a second go-back undoes the first; a backup missing a folder is unusable, and a go-back that fails halfway undoes every move |
+| Game settings | `wtf::backup_and_restore_round_trip_and_restore_can_be_undone`, `wtf::no_wtf_is_an_error_and_restoring_creates_it`, `wtf::old_backups_are_pruned_per_kind`, `wtf::restore_refuses_bad_ids_and_hostile_zips`, `wtf::backup_skips_links_instead_of_following_them` | A `WTF` backup zips the whole folder and restoring replaces it (files added since are gone); a restore first backs up the current `WTF`, so it can be undone; an automatic backup reuses the newest one when nothing changed; each kind (manual, before Update all, before a restore) keeps its newest 5; a restore refuses ids that aren't backups and zips with entries outside `WTF/`, leaving the current folder alone; links in `WTF` are skipped, not followed |
 | Release notes | `sources::release_notes_become_plain_text`, `sources::cumulative_changelog_stops_at_the_installed_version`, `sources::long_notes_are_clipped_at_a_line_end`, `sources::github::notes_cover_the_releases_newer_than_the_installed_one` | BBCode (WoWInterface), Markdown and HTML notes become plain text; a whole-history changelog (WoWInterface, TukUI) stops at the installed version's entry; GitHub gives each release newer than the installed one; long notes are cut at a line end |
 | Sources | `sources::parses_github_inputs` | `owner/repo` and GitHub URLs parse |
 | Details pane | `icons::readme_image_skips_badges_and_resolves_relative`, `icons::html_image_prefers_camo_and_skips_badges`, `icons::excerpt_strips_markup` | The README picture and excerpt skip badges and come only through GitHub |
@@ -57,8 +58,8 @@ escaping, empty states, modal focus and cancel, the addon actions in the
 details pane, Update all (one addon at a time, the "no Forever build"
 question asked once at the end, accepted or declined, and a summary that
 counts updated, failed and skipped), release notes in the details (escaped,
-and CurseForge's "no notes" line), switching an addon between CurseForge and GitHub (CurseForge ids sent as numbers), and going back to the previous version
-(it pins when that is older than the latest, and Undo unpins). It also fails if any `$("id")` in `ui/*.js` is missing from
+and CurseForge's "no notes" line), switching an addon between CurseForge and GitHub (CurseForge ids sent as numbers), going back to the previous version
+(it pins when that is older than the latest, and Undo unpins), and game settings backups (the list, Restore's warning, Undo restoring the backup made just before, and Update all backing up first without stopping when there's no `WTF` yet). It also fails if any `$("id")` in `ui/*.js` is missing from
 `index.html`, because the fake DOM would otherwise invent the element. Code
 that needs a real browser (MutationObserver, navigator, window listeners)
 lives below the boot marker or in `pad.js`, so this script doesn't cover it.
@@ -150,6 +151,7 @@ AddOns folder. Before trying them, back up
 | **writes** Update all | With two or more updates waiting, press Update all: the pane shows "Updating 1 of N" with a progress bar, then a summary that matches what happened. An addon without a Forever build is asked about once, at the end |
 | **writes** Go back | After an update, the addon's details offer "Go back to <old version>". It puts the old folders back and pins the addon; `.addonforge-backup/` then holds the newer one, and Go back again (or Undo) returns to it |
 | Release notes | Open an addon with an update waiting: "What's new" shows the notes for GitHub, Wago, WoWInterface and TukUI addons, and a line saying there are none for CurseForge ones |
+| **writes** Game settings | With WoW closed, Settings → Game settings → Back up now: a backup appears in the list. Change a keybind in game, log out, then Restore that backup: the old keybind is back, and Undo returns the new one. Update all adds a "Before Update all" backup (only when `WTF` changed since the newest), and no `.addonforge-wtf-tmp` is left in `_forever_` |
 | **writes** Remove | Remove it. Only the folders it owns are deleted, along with its `.addonforge-backup/` copy; `WTF/` is untouched |
 | Pad buttons | Press the physical buttons: A selects, B goes back, X runs the main action, Y opens search. The app follows Android's mapping, so with the Thor's ABXY layout mode switched, A and B swap |
 | Report on GitHub | Settings → Report on GitHub while signed out of GitHub in the browser: GitHub's sign-in page opens (not an error page) and the diagnostics are on the clipboard |
@@ -222,3 +224,21 @@ over the beta-configured app and smoke-tested: it auto-migrated the saved
 `_classic_beta_` selection to `_forever_`, showed the (empty) live AddOns
 folder with "No addons found", and walked every tab with the pad with no
 crash. Nothing was installed or removed.
+
+**2026-10-29, game settings backups.** Host checks: 35 Rust tests, the UI
+checks and the security gate all passed. On the Thor, a release APK
+(versionCode 2026102902) was installed over the previous build. The live
+`WTF` held only `Config.wtf` (the game hadn't been played yet), so it was
+pulled to the Mac first, and a marker SavedVariables file plus a
+`Config.wtf` line were added over adb to stand in for an in-game change.
+With the pad: Back up now added a "Backed up by you" row; Restore asked
+first, then removed the marker and put `Config.wtf` back, adding a "Before
+a restore" row; restoring that row brought the marker back; and tapping
+Undo on the snackbar reversed a restore. Backups survived reinstalling the
+APK, no `.addonforge-wtf-tmp` was left, and nothing crashed. Two pad
+problems were found and fixed: Restore buttons at the right end of a row
+were skipped by Down, so they now start the row; and the focus was lost
+after a backup or restore (the buttons are disabled while busy), so it
+returns to Back up now. Update all's automatic backup was not run on the
+device, because it would have updated real addons. Afterwards the original
+`Config.wtf` was pushed back (checksums match) and the marker removed.

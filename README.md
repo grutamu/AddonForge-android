@@ -7,7 +7,7 @@ AddonForge finds your game folder and shows every addon you have. It tells you w
 ![My addons: every addon in your game folder and whether it is up to date](docs/screenshots/my-addons.png)
 
 - **Works with the controller.** Every screen works with the D-pad and buttons, and you can use touch too.
-- **Safe for your game.** It only changes your `Interface/AddOns` folder. It never touches your addon settings (`WTF`), and it refuses any download that contains a program.
+- **Safe for your game.** It only changes your `Interface/AddOns` folder, and your addon settings (`WTF`) only when you restore a backup of them. It refuses any download that contains a program.
 - **Private.** There are no accounts, ads or analytics. It talks only to the sites where addons are published.
 
 > AddonForge for Android is an unofficial port of [AddonForge](https://github.com/Topher121/AddonForge) by Pocket Forge Studios. They don't make or support this version, so please [report problems here](https://github.com/grutamu/AddonForge-android/issues), not to them.
@@ -27,7 +27,7 @@ AddonForge finds your game folder and shows every addon you have. It tells you w
 
 The first time you open AddonForge, it asks for **All files access**. Your game folder was created by your WoW launcher, not by AddonForge, so Android needs your permission before AddonForge can change it. Press **Allow file access**, turn the switch on, then come back.
 
-AddonForge only ever writes inside `Interface/AddOns`.
+AddonForge only ever writes inside `Interface/AddOns`, and inside `WTF` when you restore a settings backup.
 
 ### 3. Let it find your game
 
@@ -86,6 +86,7 @@ Is the addon you want missing from the catalogue? If it's on GitHub, type its `o
 - **WoW install:** the game folder AddonForge manages. **Detect** searches for it again, and **Choose folder…** lets you pick it yourself.
 - **Include pre-releases and beta builds:** turn this on only if an addon you use releases its Forever version as a beta.
 - **Wago key** (optional): see below.
+- **Game settings:** **Back up now** saves a copy of the game's `WTF` folder, where your addon settings, keybinds and macros live. AddonForge also makes one before **Update all**. Press **Restore** next to a backup to put those settings back (close WoW first, because it saves over them when you log out). Your current settings are backed up first, so you can undo it.
 - **Addon list:** **Share my list…** saves a small file with your addons' names and where they come from. It contains no settings. Open it on another device with **Import a list…** to install all of them.
 - **Report a problem:** see [Something wrong?](#something-wrong)
 
@@ -142,7 +143,7 @@ The author hasn't released a version made for Forever yet. It may still work, or
 For addons that are only on CurseForge, AddonForge reads the file list from cfwidget.com. If that site is down, the addon shows an error. Press **Open its page** to download it by hand, or try again later.
 
 **Android says "App not installed" when I update AddonForge.**
-Only APKs from this project's [releases page](https://github.com/grutamu/AddonForge-android/releases) can install over your copy. If you really have to, uninstall AddonForge first. Your addons stay in the game folder; you only lose AddonForge's own settings.
+Only APKs from this project's [releases page](https://github.com/grutamu/AddonForge-android/releases) can install over your copy. If you really have to, uninstall AddonForge first. Your addons stay in the game folder; you only lose AddonForge's own settings and your game settings backups.
 
 **Does it work on other Android devices?**
 It's made and tested for the AYN Thor, on either screen: on the smaller bottom screen the list takes the full width and an addon's details open in its place. Other landscape Android handhelds may work, but nobody has tested them.
@@ -150,8 +151,11 @@ It's made and tested for the AYN Thor, on either screen: on the smaller bottom s
 **Where does "Go back" keep the old version?**
 In `Interface/AddOns/.addonforge-backup`, one earlier version per addon. WoW doesn't load anything from there. Removing an addon deletes its copy too.
 
+**Where are my game settings backups kept?**
+In AddonForge's own storage on your Thor, so they survive reinstalling the game. Uninstalling AddonForge deletes them. It keeps the newest 5 you made, the newest 5 from before Update all, and the newest 5 from before a restore.
+
 **Does removing an addon delete my settings for it?**
-No. Settings are saved in the game's `WTF` folder, which AddonForge never touches.
+No. Settings are saved in the game's `WTF` folder, which AddonForge only changes when you restore a settings backup.
 
 ---
 

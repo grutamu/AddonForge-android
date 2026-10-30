@@ -203,5 +203,39 @@ assert.match(element('installed-list').innerHTML, /Discover addons/);
   assert.deepEqual(calls.filter(([c]) => c !== 'package_icons').map(([c, a]) => c === 'set_pin' ? `set_pin ${a.pinned}` : c), ['restore_backup', 'set_pin false', 'scan'], 'Undo restores again, then unpins');
   assert.equal(run('packages[0].pinned'), false);
   run('closeDetail(); packages = []');
-  console.log('UI checks passed: counts, eligible updates, filters, search, escaping, empty states, modal focus and cancellation, addon actions in the details pane, Update all progress and summary, release notes, switching between CurseForge and GitHub, going back to the previous version.');
+  // Game settings (WTF) backups.
+  handlers.settings_backups = () => [
+    { id: 'wtf-200-update', saved_at: 200, reason: 'update', size: 3 * 1048576 },
+    { id: 'wtf-100-manual', saved_at: 100, reason: 'manual', size: 2048 },
+  ];
+  await run('loadSettingsBackups()');
+  assert.match(element('wtf-list').innerHTML, /Before Update all · 3\.0 MB/);
+  assert.match(element('wtf-list').innerHTML, /data-wtf-restore="wtf-100-manual"/);
+  handlers.restore_settings = ({ id }) => (id === 'wtf-100-manual' ? { id: 'wtf-300-restore', saved_at: 300, reason: 'restore', size: 1 } : null);
+  calls.length = 0;
+  const restoring = element('wtf-list').listeners.click({ target: { closest: () => ({ dataset: { wtfRestore: 'wtf-100-manual' } }) } });
+  await new Promise((r) => setTimeout(r, 0));
+  assert.match(element('modal-text').innerHTML, /Close WoW first/);
+  element('modal-yes').onclick();
+  await restoring;
+  assert.equal(JSON.stringify(calls.find(([c]) => c === 'restore_settings')[1]), '{"id":"wtf-100-manual"}');
+  assert.equal(element('snackbar-text').textContent, 'Game settings restored');
+  calls.length = 0;
+  await element('snackbar-undo').onclick();
+  assert.equal(JSON.stringify(calls.find(([c]) => c === 'restore_settings')[1]), '{"id":"wtf-300-restore"}', 'Undo restores the backup made just before');
+  handlers.settings_backups = () => [];
+  await run('loadSettingsBackups()');
+  assert.match(element('wtf-list').innerHTML, /No backups yet/);
+  // Update all backs up the settings before the first update.
+  handlers.backup_settings = () => Promise.reject('There\'s no WTF folder yet');
+  handlers.update_package = () => ({ ...pkg('up'), status: 'ok', installed_version: '2' });
+  handlers.scan = () => [];
+  run(`packages = [${JSON.stringify(pkg('up', { status: 'update' }))}]`);
+  calls.length = 0;
+  await run('updateAll()');
+  const order = calls.map(([c]) => c).filter((c) => c === 'backup_settings' || c === 'update_package');
+  assert.deepEqual(order, ['backup_settings', 'update_package'], 'a failed backup (no WTF yet) doesn\'t stop the updates');
+  assert.equal(JSON.stringify(calls.find(([c]) => c === 'backup_settings')[1]), '{"reason":"update"}');
+  run('packages = []; batch = null');
+  console.log('UI checks passed: counts, eligible updates, filters, search, escaping, empty states, modal focus and cancellation, addon actions in the details pane, Update all progress and summary, release notes, switching between CurseForge and GitHub, going back to the previous version, game settings backups.');
 })().catch((error) => { console.error(error); process.exitCode = 1; });

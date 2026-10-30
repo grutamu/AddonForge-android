@@ -146,6 +146,9 @@ input::placeholder { color: var(--dim); }
 .plan { list-style: none; padding: 0; margin: 8px 0; max-height: 220px; overflow: auto; font-size: 12px; }
 .plan li { padding: 4px 0; border-bottom: 1px solid var(--line); }
 .plan .have, .plan .skip { color: var(--dim); }
+.wtf-list { max-height: none; }
+.wtf-list li { display: flex; align-items: center; gap: 8px; }
+.wtf-list li > span { flex: 1; }
 .diag { background: var(--bg); border: 1px solid var(--line); border-radius: 4px; padding: 10px; font: 11px/1.5 ui-monospace, monospace; color: var(--muted); max-height: 220px; overflow: auto; white-space: pre-wrap; margin: 8px 0 0; user-select: text; }
 .muted { color: var(--muted); font-size: 12px; }
 

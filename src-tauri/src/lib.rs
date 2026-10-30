@@ -6,6 +6,7 @@ mod selfupdate;
 mod sources;
 mod state;
 mod wow;
+mod wtf;
 
 use catalog::{Catalog, CatalogEntry, Stats};
 use serde::{Deserialize, Serialize};
@@ -1038,6 +1039,50 @@ async fn release_notes(app: State<'_, Shared>, key: String) -> Result<Vec<source
     Ok(notes)
 }
 
+// ---------------------------------------------------------------- settings backups
+
+fn settings_backup_dir() -> PathBuf {
+    AppState::dir().join(wtf::DIR)
+}
+
+#[tauri::command]
+async fn settings_backups() -> Result<Vec<wtf::SettingsBackup>, String> {
+    Ok(wtf::list(&settings_backup_dir()))
+}
+
+/// `reason` "update" (before Update all) reuses the newest backup when WTF
+/// hasn't changed since; "manual" always makes a new one.
+#[tauri::command]
+async fn backup_settings(app: State<'_, Shared>, reason: String) -> Result<wtf::SettingsBackup, String> {
+    let install = current_install(&app).await?;
+    let auto = reason != "manual";
+    let b = tokio::task::spawn_blocking(move || wtf::backup(Path::new(&install), &settings_backup_dir(), &reason, auto))
+        .await
+        .map_err(err)?
+        .map_err(|e| {
+            loge!("settings backup: {e:#}");
+            format!("{e:#}")
+        })?;
+    logi!("settings backup {} ({} bytes)", b.id, b.size);
+    Ok(b)
+}
+
+/// Returns the backup of the settings it replaced, if there were any.
+#[tauri::command]
+async fn restore_settings(app: State<'_, Shared>, id: String) -> Result<Option<wtf::SettingsBackup>, String> {
+    let install = current_install(&app).await?;
+    let i = id.clone();
+    let undo = tokio::task::spawn_blocking(move || wtf::restore(Path::new(&install), &settings_backup_dir(), &i))
+        .await
+        .map_err(err)?
+        .map_err(|e| {
+            loge!("settings restore {id}: {e:#}");
+            format!("{e:#}")
+        })?;
+    logi!("settings restored from {id} (previous saved as {:?})", undo.as_ref().map(|b| &b.id));
+    Ok(undo)
+}
+
 // ---------------------------------------------------------------- import / export
 
 #[derive(Serialize, Deserialize, Clone, Debug)]
@@ -1248,6 +1293,7 @@ fn make_app() -> Shared {
     }
     if let Some(p) = &st.install_path {
         install::clean_tmp(&addons_dir(p));
+        wtf::clean_tmp(Path::new(p));
     }
     Arc::new(App {
         client,
@@ -1287,6 +1333,9 @@ pub fn run() {
             remove_package,
             restore_backup,
             release_notes,
+            settings_backups,
+            backup_settings,
+            restore_settings,
             export_list,
             import_list,
             check_self_update,

@@ -104,6 +104,17 @@
     </div>
 
     <div class="pref">
+      <div class="pref-label">Game settings</div>
+      <div class="pref-body">
+        <div class="row">
+          <button id="btn-wtf-backup" class="btn">Back up now</button>
+        </div>
+        <p class="hint">A copy of the game's <code>WTF</code> folder: your addon settings, keybinds and macros. AddonForge also makes one before Update all, and keeps the last 5 of each kind on this device. Close WoW before you restore: it saves over these files when you log out.</p>
+        <ul id="wtf-list" class="plan wtf-list"></ul>
+      </div>
+    </div>
+
+    <div class="pref">
       <div class="pref-label">Report a problem</div>
       <div class="pref-body">
         <div class="row">
@@ -192,7 +203,7 @@
     <h1 id="onboard-title">Welcome to AddonForge</h1>
     <div id="onboard-access">
       <p>AddonForge installs and updates addons in your WoW: Forever game folder.</p>
-      <p class="muted">That folder was made by your WoW launcher, so Android needs you to allow <b>All files access</b>. AddonForge only ever changes <code>Interface/AddOns</code>.</p>
+      <p class="muted">That folder was made by your WoW launcher, so Android needs you to allow <b>All files access</b>. AddonForge only ever changes <code>Interface/AddOns</code>, and <code>WTF</code> when you restore a settings backup.</p>
       <button id="onboard-allow" class="btn primary big">Allow file access</button>
     </div>
     <div id="onboard-find" class="hidden">

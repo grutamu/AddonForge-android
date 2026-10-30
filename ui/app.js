@@ -498,7 +498,9 @@ function renderBatch() {
   box.classList.toggle("hidden", !batch);
   if (!batch) return (box.innerHTML = "");
   if (batch.running) {
-    box.innerHTML = batch.waiting
+    box.innerHTML = batch.saving
+      ? `<div><span class="spinner"></span> Backing up your game settings…</div>`
+      : batch.waiting
       ? `<div>${plural(batch.waiting, "addon")} without a Forever build: install anyway?</div>`
       : `<div><span class="spinner"></span> ${batch.again ? "Installing" : "Updating"} ${batch.at} of ${batch.total}: <b>${esc(batch.name)}</b></div><progress max="${batch.total}" value="${batch.at - 1}"></progress>`;
     return;
@@ -535,6 +537,12 @@ async function updateAll() {
   };
   setBusy(true);
   try {
+    batch = { running: true, saving: true };
+    renderBatch();
+    // No WTF yet means there's nothing to lose; any failure is in the log.
+    try {
+      await invoke("backup_settings", { reason: "update" });
+    } catch (_) {}
     await run(todo, false);
     if (notForever.length) {
       batch = { running: true, waiting: notForever.length };
@@ -886,6 +894,7 @@ async function loadSettings() {
   $("wago-link").dataset.url = settings.wago_key_url;
   $("wago-status").textContent = settings.has_wago_key ? "A key is saved." : "No key saved. Wago-only addons will show as \"Needs Wago key\".";
   $("pref-prerelease").checked = !!settings.allow_prerelease;
+  loadSettingsBackups();
   $("catalog-info").textContent = settings.catalog_count
     ? `${settings.catalog_count} addons · ${{ remote: "downloaded from instawow's list", cached: "today's copy of instawow's list", "cached (old)": "older copy (instawow's list unreachable)" }[settings.catalog_source] || settings.catalog_source}${settings.catalog_updated ? " · " + settings.catalog_updated : ""}`
     : "not loaded yet";
@@ -1054,6 +1063,68 @@ function renderImportPlan(plan) {
       document.querySelector('.tab[data-tab="installed"]').click();
     };
 }
+
+// ---------------------------------------------------------------- game settings (WTF) backups
+const WTF_REASON = { manual: "Backed up by you", update: "Before Update all", restore: "Before a restore" };
+const fmtSize = (n) => (n >= 1048576 ? `${(n / 1048576).toFixed(1)} MB` : `${Math.max(1, Math.round(n / 1024))} KB`);
+const fmtWhen = (secs) => new Date(secs * 1000).toLocaleString([], { dateStyle: "medium", timeStyle: "short" });
+let wtfBackups = [];
+
+async function loadSettingsBackups() {
+  try {
+    wtfBackups = await invoke("settings_backups");
+  } catch (err) {
+    wtfBackups = [];
+  }
+  renderSettingsBackups();
+}
+// Disabled while busy, or re-rendered, the focused button drops the pad's focus.
+function keepBackupFocus() {
+  const a = document.activeElement;
+  if (!a || a === document.body || !a.isConnected) $("btn-wtf-backup").focus({ preventScroll: true });
+}
+function renderSettingsBackups() {
+  $("wtf-list").innerHTML = wtfBackups.length
+    ? wtfBackups
+        .map((b) => `<li><button class="btn small" data-wtf-restore="${esc(b.id)}">Restore</button><span>${esc(fmtWhen(b.saved_at))} <span class="muted">${esc(WTF_REASON[b.reason] || b.reason)} · ${fmtSize(b.size)}</span></span></li>`)
+        .join("")
+    : `<li class="skip">No backups yet.</li>`;
+}
+$("btn-wtf-backup").onclick = async () => {
+  setBusy(true);
+  try {
+    const b = await invoke("backup_settings", { reason: "manual" });
+    toast(`Game settings backed up (${fmtSize(b.size)})`);
+  } catch (err) {
+    toast(String(err), true);
+  } finally {
+    setBusy(false);
+  }
+  await loadSettingsBackups();
+  keepBackupFocus();
+};
+async function restoreSettings(id, undoing = false) {
+  setBusy(true);
+  try {
+    const undo = await invoke("restore_settings", { id });
+    if (undoing) toast("Game settings put back");
+    else if (undo) snackbar("Game settings restored", () => restoreSettings(undo.id, true));
+    else toast("Game settings restored");
+  } catch (err) {
+    toast(String(err), true);
+  } finally {
+    setBusy(false);
+  }
+  await loadSettingsBackups();
+  keepBackupFocus();
+}
+$("wtf-list").addEventListener("click", async (e) => {
+  const id = e.target.closest("[data-wtf-restore]")?.dataset.wtfRestore;
+  const b = wtfBackups.find((x) => x.id === id);
+  if (!b || busy) return;
+  const ok = await confirmModal(`<p>Put back your game settings from <b>${esc(fmtWhen(b.saved_at))}</b>?</p><p class="muted">Close WoW first: it saves over these files when you log out. Your current settings are backed up first, so you can undo this.</p>`, "Restore");
+  if (ok) await restoreSettings(b.id);
+});
 
 // ---------------------------------------------------------------- report a problem
 let diagText = "";
