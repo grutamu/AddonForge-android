@@ -13,9 +13,7 @@ val tauriProperties = Properties().apply {
     }
 }
 
-// Release signing: gen/android/keystore.properties (gitignored) with
-// storeFile, storePassword, keyAlias, keyPassword. Without it the release APK
-// is unsigned and won't install.
+// keystore.properties: storeFile, storePassword, keyAlias, keyPassword.
 val keystoreProperties = Properties().apply {
     val propFile = rootProject.file("keystore.properties")
     if (propFile.exists()) {

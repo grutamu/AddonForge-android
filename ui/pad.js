@@ -1,17 +1,13 @@
-// AddonForge on the AYN Thor: gamepad navigation, focus, Back, first run and
-// coming back from the launcher. Loaded after app.js and uses its globals.
-// MainActivity forwards every pad button and Back as afPad("NAME"); without
-// it (the Mac preview) the keyboard arrows move the focus.
+// Uses app.js globals, so it must load after it.
 (() => {
   const A = window.AddonForgeAndroid;
   const body = document.body;
 
-  // Lists are rebuilt with innerHTML: make rows focusable, keep the focus.
   function prepare(root) {
     root.querySelectorAll(".item").forEach((el) => { el.tabIndex = 0; el.setAttribute("role", "button"); });
     root.querySelectorAll(".addon-detail, .c-src a").forEach((el) => { el.tabIndex = -1; });
   }
-  // Opening an addon on the lower screen hides the list the focus was on.
+  // The full-screen details hide the focused list row.
   new MutationObserver(() => {
     if (fullDetail() && body.classList.contains("pad-used") && !current()) setTimeout(focusFirst, 0);
   }).observe($("detail"), { attributes: true, attributeFilter: ["class"] });
@@ -24,8 +20,6 @@
     }).observe(list, { childList: true });
     prepare(list);
   }
-  // The Thor is held with the controller: show where the focus is from the
-  // start, unless the screen has already been touched.
   let launched = false;
   function highlightOnLaunch() {
     if (launched || lastPointer || open("onboard") || body.dataset.tab !== "installed" || !$("installed-list").querySelector(".item")) return;
@@ -36,8 +30,6 @@
   }
 
   // ------------------------------------------------------------ gamepad
-  // Buttons as Android names them (the OS / firmware owns the layout): A
-  // confirms, B goes back, X (top) = main action, Y = search.
   const ROLE = { A: "confirm", B: "back", X: "primary", Y: "search" };
 
   const FOCUSABLE = 'button, a[href], a[data-url], input:not([type=hidden]), select, summary, [tabindex="0"]';
@@ -46,8 +38,7 @@
   const scope = () => (open("modal") ? $("modal") : open("onboard") ? $("onboard") : body);
   const shown = (el) => el.getClientRects().length > 0 && getComputedStyle(el).visibility !== "hidden";
   const candidates = () => [...scope().querySelectorAll(FOCUSABLE)].filter((el) => !el.disabled && el.tabIndex >= 0 && shown(el));
-  // The lower screen (style.css's max-width: 700px): the details replace the
-  // list instead of sitting beside it, and the pane's tools are a bar under it.
+  // Must match the breakpoint in style.css.
   const NARROW = matchMedia("(max-width: 700px)");
   const fullDetail = () => NARROW.matches && open("detail");
   const current = () => {
@@ -56,22 +47,18 @@
   };
 
   let wanted = null;
-  // `dir` is the pad direction that got here (from move only).
   function focus(el, dir) {
     if (!el) return;
     wanted = el;
-    // Passing over a text box with the pad shouldn't open the keyboard (on the
-    // lower screen it covers the app); A does, through typeIn.
+    // Only A (typeIn) should open the keyboard.
     if (el.matches(TEXT)) el.inputMode = "none";
     el.focus({ preventScroll: true });
     el.scrollIntoView({ block: "nearest", inline: "nearest" });
-    // The last thing to focus that way: show the rest of the page that way too
-    // (the text under the last link, the top above the search box).
+    // At the last item, scroll to the page edge.
     const box = scroller(el);
     if (box && (dir === "UP" || dir === "DOWN") && !nearest(el, dir, candidates().filter((c) => box.contains(c)))) reveal(box, el, dir === "DOWN");
     remember(el);
   }
-  // The element the page scrolls in around `el` (main, a dialog's card), if any.
   function scroller(el) {
     for (let p = el.parentElement; p && p !== body; p = p.parentElement) {
       const o = getComputedStyle(p).overflowY;
@@ -79,7 +66,6 @@
     }
     return null;
   }
-  // Scroll `box` towards its end as far as it goes with `el` still in sight.
   function reveal(box, el, down) {
     const b = box.getBoundingClientRect(), r = el.getBoundingClientRect();
     const room = down ? r.top - b.top - 8 : b.bottom - r.bottom - 8;
@@ -89,11 +75,8 @@
     const b = box.getBoundingClientRect(), r = el.getBoundingClientRect();
     return r.bottom > b.top && r.top < b.bottom;
   };
-  // The first D-pad press after touching the screen never reaches the app:
-  // Android spends it leaving touch mode, and the WebView moves DOM focus to
-  // the first tab (it does the same when the keyboard opens). A tab gaining
-  // focus without a tap and without us asking is that: switch to pad mode
-  // and put the focus where it belongs.
+  // Leaving touch mode, Android swallows the first D-pad press and the
+  // WebView focuses the first tab instead. Treat that as a pad press.
   let lastPointer = 0;
   document.addEventListener("focusin", (e) => {
     if (!e.target.matches(".tab") || e.target === wanted || Date.now() - lastPointer < 800) return;
@@ -109,32 +92,24 @@
       return focus(main || candidates().find((el) => $("pane").contains(el)));
     }
     const panel = document.querySelector(".panel.active");
-    // Not a text box: focusing one opens the on-screen keyboard over the tab.
+    // Skip text boxes: focusing one opens the keyboard.
     const pick = panel.querySelector(".item.selected") || panel.querySelector(".item[tabindex]") || candidates().find((el) => panel.contains(el) && !el.matches(TEXT));
     focus(pick || candidates()[0]);
   }
 
-  // Nearest focusable in a direction: the gap between edges along the axis,
-  // plus a heavy penalty for being off to the side. A row and the buttons
-  // inside it overlap, so between those two the centres decide instead.
   let padStarted = false;
   function move(dir) {
-    // The WebView parks focus on the first tab at launch: start in the list instead.
+    // The WebView focuses the first tab at launch.
     const cur = padStarted && current();
     padStarted = true;
     if (!cur) return focusFirst();
     const vertical = dir === "UP" || dir === "DOWN";
-    // Up and down inside the side pane stay in it (its text is read by
-    // scrolling, not by jumping to the list); Left and Back leave it.
-    // On the lower screen that is only the details: the bar under the list is
-    // part of it.
+    // Up/down stay inside the details pane so its text can be scrolled.
     if (vertical && scope() === body && $("pane").contains(cur) && (!NARROW.matches || fullDetail())) return paneMove(dir === "DOWN", cur);
     const box = scroller(cur);
-    // The step scrolling below can take the focus out of sight: bring it back first.
     if (vertical && box && !inSightOf(box, cur)) return focus(cur);
     const best = nearest(cur, dir, candidates());
     if (best) return focus(best, dir);
-    // Nothing more to focus that way: keep scrolling the page a step at a time.
     if (vertical && box) box.scrollBy({ top: (dir === "DOWN" ? 1 : -1) * Math.round(box.clientHeight * 0.6), behavior: "smooth" });
   }
   function nearest(cur, dir, pool) {
@@ -163,13 +138,8 @@
     return best;
   }
 
-  // Reading the side pane with the stick. While there is more text that way,
-  // each press scrolls it a step, then the focus moves onto the next button
-  // that way once it is fully in sight (Update, Pin, … sit under the text);
-  // from the bar pinned under the text (Open its page / Install) that is a
-  // button that has just come into sight. A focused button scrolled out of
-  // sight hands the focus to the pinned bar, so it is always on screen.
-  // At either end the focus steps to the nearest button in sight that way.
+  // Scrolls the pane a step per press until the next button is in sight. A
+  // focused button scrolled out of sight hands focus to the pinned bar.
   const PINNED = ".row.right, .pane-actions";
   let paneTimer = 0;
   function paneMove(down, cur) {
@@ -184,19 +154,16 @@
       const c = el.getBoundingClientRect();
       return c.top >= pr.top - 1 && c.bottom <= bottom + 1;
     };
-    // Buttons that way from `from`, nearest first (from the pinned bar: all of them).
     const ahead = (from) => {
       const i = flow.indexOf(from);
       if (down) return i < 0 ? flow : flow.slice(i + 1);
       return (i < 0 ? flow : flow.slice(0, i)).reverse();
     };
-    // The next button that way is already in sight: just go there (from the
-    // pinned bar that only works upwards, nothing is under it).
     const near = cur.closest(PINNED) ? (down ? null : ahead(cur).find(inSight)) : ahead(cur)[0];
     if (near && inSight(near)) return focus(near);
     const more = down ? pane.scrollTop + pane.clientHeight < pane.scrollHeight - 1 : pane.scrollTop > 0;
     if (!more) {
-      if (down && cur.closest(PINNED)) return; // nothing under the pinned bar
+      if (down && cur.closest(PINNED)) return;
       const n = ahead(cur).find(inSight) || (!cur.closest(PINNED) && ahead(cur)[0]);
       if (n) return focus(n);
       if (down && pinned[0]) focus(pinned[0]);
@@ -216,7 +183,7 @@
     }, 350);
   }
 
-  // Re-renders replace the focused row: find the same row / button again.
+  // Re-renders replace the focused element.
   let lastFocus = null;
   function remember(el) {
     const row = el.closest("[data-key], [data-id]");
@@ -268,7 +235,6 @@
     typeIn($(input));
   }
 
-  // One layer at a time: dialog, text box, details, other tab, then leave.
   function back() {
     if (open("modal")) return $("modal-no").classList.contains("hidden") ? $("modal-yes").click() : $("modal-no").click();
     if (open("onboard")) return A?.exit();
@@ -278,7 +244,6 @@
       return focusFirst();
     }
     if (detailId) {
-      // Back to the row the details came from, where it was in the list.
       closeDetail();
       return current() || focusFirst();
     }
@@ -301,7 +266,6 @@
     if (name === "R1" || name === "R2") return tabs(1);
     if (name === "START" && body.dataset.tab === "installed" && !busy) return $("btn-check").click();
   };
-  // Keyboards (and desktop preview): arrows move, Enter confirms, Escape backs out.
   document.addEventListener("keydown", (e) => {
     const typing = e.target.matches?.(TEXT);
     const dir = { ArrowUp: "UP", ArrowDown: "DOWN", ArrowLeft: "LEFT", ArrowRight: "RIGHT" }[e.key];
@@ -332,7 +296,7 @@
     if (!A || finding) return;
     if (!A.hasFileAccess()) return ob.show("access");
     if (!(await waitFor(() => settings, 4000))) return;
-    // app.js looks for the game itself when it comes back from the permission screen.
+    // app.js retries the search on return from the permission screen.
     if (await waitFor(() => settings?.install_path, 2500)) return ob.hide();
     finding = true;
     ob.show("find");
@@ -380,7 +344,6 @@
   $("onboard-use").onclick = () => usePath($("onboard-path").value.trim());
   $("onboard-pick").onclick = async () => { const path = await ask("pickFolder"); if (path) usePath(path); };
   $("onboard-retry").onclick = onboard;
-  // Coming back from the launcher: check again if the last check is stale.
   const RECHECK_MS = 10 * 60 * 1000;
   let lastCheck = Date.now();
   let checkedOnce = false;
@@ -395,7 +358,7 @@
     }
   });
 
-  // Launcher shortcut (long-press the icon → "Update all"): check, then update.
+  // From the launcher's long-press shortcut.
   async function launchAction() {
     if (A?.takeLaunchAction() !== "update-all") return;
     if (!(await waitFor(() => settings?.install_path, 5000))) return;

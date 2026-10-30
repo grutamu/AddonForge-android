@@ -1,8 +1,3 @@
-// Security gate. Fails (exit 1) if the shipped configuration weakens any protection. Run by `npm run check`,
-// by the host CI job (build.yml) and by the Android release workflow before every APK, so a weakened build
-// cannot be published.
-//
-// Studio rule (Chris 2026-10-01): nothing we build may turn off a security protection. See ~/.claude/CLAUDE.md.
 import { readFileSync, existsSync } from 'node:fs';
 import { resolve, dirname } from 'node:path';
 import { fileURLToPath } from 'node:url';
@@ -45,7 +40,7 @@ else {
 if (conf.app?.security?.dangerousDisableAssetCspModification) problems.push('tauri.conf.json: dangerousDisableAssetCspModification is set');
 if (conf.app?.security?.freezePrototype === false) problems.push('tauri.conf.json: freezePrototype disabled');
 
-// ---- Capabilities: no shell / fs / http wildcard permissions the app does not need ----
+// ---- Capabilities ----
 const capDir = resolve(ROOT, 'src-tauri/capabilities');
 if (existsSync(capDir)) {
   const cap = JSON.parse(readFileSync(resolve(capDir, 'default.json'), 'utf8'));
@@ -53,7 +48,7 @@ if (existsSync(capDir)) {
   if (risky.length) problems.push(`capabilities/default.json grants ${risky.join(', ')} — the app does not need shell, filesystem, process or raw http access`);
 }
 
-// ---- The UI must not need inline scripts or styles (CSP would block them, and allowing them weakens it) ----
+// ---- No inline scripts or styles in ui/ ----
 for (const f of readdirSafe(resolve(ROOT, 'ui')).filter((n) => /\.(html|js)$/.test(n))) {
   const p = resolve(ROOT, 'ui', f);
   const s = readFileSync(p, 'utf8');
@@ -63,7 +58,7 @@ for (const f of readdirSafe(resolve(ROOT, 'ui')).filter((n) => /\.(html|js)$/.te
   if (/\beval\(|new Function\(/.test(s)) problems.push(`ui/${f}: eval / new Function`);
 }
 
-// ---- Android: no WebView debugging, no debuggable or cleartext release builds ----
+// ---- Android ----
 const android = resolve(ROOT, 'src-tauri/gen/android/app');
 if (existsSync(android)) {
   const sources = [];
@@ -95,7 +90,7 @@ if (existsSync(android)) {
   }
 }
 
-// ---- Repo must never touch antivirus or Windows security settings ----
+// ---- Antivirus / Windows security settings ----
 const SEC = /Set-MpPreference|Add-MpPreference|Remove-MpPreference|MpCmdRun|-ExclusionPath|DisableRealtimeMonitoring|PUAProtection|SmartScreenEnabled|EnableLUA|netsh\s+advfirewall\s+set|Set-NetFirewallProfile|Set-ExecutionPolicy\s+Unrestricted/i;
 const scan = dir => {
   for (const name of readdirSafe(dir)) {

@@ -1,9 +1,7 @@
-// AddonForge UI. Plain JS, no framework: everything comes from Rust over IPC.
 const T = window.__TAURI__;
 const invoke = T.core.invoke;
 const openUrl = (u) => T.opener.openUrl(u).catch((e) => toast(String(e), true));
-// The Thor's bridge to MainActivity (pickers, sharing, keyboard, screen on);
-// undefined in the Mac preview and in scripts/test-ui.js.
+// MainActivity bridge; undefined on desktop and in tests.
 const A = window.AddonForgeAndroid;
 
 const $ = (id) => document.getElementById(id);
@@ -16,9 +14,8 @@ let settings = null;
 let selfUpdate = null;
 let activeFilter = "all";
 let sortMode = "downloads";
-// Thousands of catalogue entries: draw the first few hundred, search finds the rest.
 const BROWSE_MAX = 200;
-const icons = new Map(); // "p:<package key>" / "c:<catalogue id>" -> data URL, or null when there is none
+const icons = new Map(); // "p:<key>" | "c:<catalogue id>" -> data URL or null
 const needsAttention = (p) => p.status === "error" || p.status === "no-key" || p.status === "no-source" || p.missing_deps.length > 0 || !p.supports_forever;
 
 // ---------------------------------------------------------------- helpers
@@ -27,8 +24,7 @@ function iconTile(kind, id, name) {
   const letter = esc(String(name || "?").replace(/^[^a-z0-9]+/i, "").charAt(0).toUpperCase() || "?");
   return `<span class="ico" data-ico="${esc(kind + ":" + id)}" aria-hidden="true">${src ? `<img src="${src}" alt="">` : letter}</span>`;
 }
-// Fetch icons for installed rows that don't have one yet and drop them into the DOM in place (no re-render).
-// Only installed addons have icons (their own icon file); catalogue rows keep their letter tile.
+// Patches icons into the DOM in place, without a re-render.
 async function loadIcons(kind, ids) {
   const want = ids.filter((id) => !icons.has(kind + ":" + id));
   if (!want.length) return;
@@ -64,7 +60,6 @@ function ago(iso) {
 
 let toastTimer;
 function toast(msg, bad = false) {
-  // A finished install gives a small haptic tick.
   if (!bad && /^(Installed|Imported|Updated|Removed)|is now /.test(msg)) A?.haptic();
   const t = $("toast");
   t.textContent = msg;
@@ -101,7 +96,6 @@ function confirmModal(html, yes = "Continue") {
 }
 
 function setBusy(b) {
-  // Installs keep the screen on, so a long Update all isn't cut off by sleep.
   if (b !== busy) A?.keepAwake(b);
   busy = b;
   document.querySelectorAll(".btn").forEach((el) => {
@@ -138,7 +132,6 @@ document.addEventListener("click", (e) => {
 // ---------------------------------------------------------------- tabs
 document.querySelectorAll(".tab").forEach((btn) =>
   btn.addEventListener("click", () => {
-    // The pane shows the tab's home; leaving a tab closes its details.
     if (detailId) closeDetail();
     document.body.dataset.tab = btn.dataset.tab;
     document.querySelectorAll(".tab").forEach((b) => {
@@ -247,7 +240,7 @@ function renderInstalled() {
 
 $("installed-filter").addEventListener("input", renderInstalled);
 $("show-ignored").addEventListener("change", renderInstalled);
-// Chips instead of dropdowns: a pad can't open a <select>'s picker.
+// A gamepad can't open a <select> picker.
 function chipRow(id, pick) {
   $(id).addEventListener("click", (e) => {
     const b = e.target.closest(".fchip");
@@ -290,7 +283,6 @@ $("installed-list").addEventListener("click", async (e) => {
   await packageAction(btn.dataset.act, p, btn);
 });
 
-// One addon's actions, from its row or the details pane.
 async function packageAction(act, p, btn, undoing = false) {
   const key = p.key;
   if (act === "update") await updateOne(p);
@@ -306,7 +298,6 @@ async function packageAction(act, p, btn, undoing = false) {
     } catch (err) {
       toast(String(err), true);
     }
-    // Pin and Ignore are one press to undo.
     const now = packages.find((x) => x.key === key);
     if (!undoing && now && (now.pinned !== p.pinned || now.ignored !== p.ignored)) {
       const done = act === "pin" ? (now.pinned ? "pinned" : "can update again") : now.ignored ? "ignored" : "shown again";
@@ -317,13 +308,12 @@ async function packageAction(act, p, btn, undoing = false) {
     setBusy(true);
     try {
       const fresh = await invoke("restore_backup", { key });
-      // What we know of the latest release still holds; the version changed.
       Object.assign(fresh, { remote_version: p.remote_version, remote_forever: p.remote_forever, remote_prerelease: p.remote_prerelease });
       if (p.remote_version && fresh.source) {
         const same = sameVersion(fresh.installed_version, p.remote_version);
         Object.assign(fresh, { status: same ? "ok" : "update", update_available: !same, note: "" });
       }
-      // Rolled back past the latest: pin it, or Update all would undo it.
+      // Pin, or Update all would undo the roll back.
       const pin = !undoing && fresh.status === "update" && !fresh.pinned;
       if (pin) {
         await invoke("set_pin", { key, pinned: true });
@@ -383,7 +373,7 @@ function explainError(err) {
   return s;
 }
 
-// One update, no toasts or questions: { ok: package } | { notForever: true } | { error }.
+// -> { ok: package } | { notForever: true } | { error }
 async function runUpdate(p, allowNonForever) {
   p.status = "checking";
   renderInstalled();
@@ -414,7 +404,7 @@ async function updateOne(p, allowNonForever = false) {
   else if (await confirmModal(`<p><b>${esc(p.name)}</b>'s latest release does not list a Forever build.</p><p class="muted">It may still work, or it may error in game. Install it anyway?</p>`, "Install anyway")) return updateOne(p, true);
 }
 
-/// keepStatus: re-scan but keep remote versions we already know.
+// keepStatus: keep known remote versions.
 async function rescan(keepStatus = false) {
   setBusy(true);
   try {
@@ -444,9 +434,8 @@ async function rescan(keepStatus = false) {
   }
 }
 
-/// quiet: an automatic check only speaks up when there is something to update.
+// quiet: toast only when there are updates.
 async function checkUpdates(quiet = false) {
-  // Offline: one clear message instead of a red error on every addon.
   if (window.navigator?.onLine === false) {
     if (!quiet) toast("You're offline. Connect to Wi-Fi to check for updates.", true);
     return;
@@ -474,9 +463,7 @@ async function checkUpdates(quiet = false) {
   }
 }
 
-// Update all: one addon at a time, its progress in the pane. Addons whose
-// latest release has no Forever build wait for one question at the end, and
-// the pane keeps a summary of what happened until the next check.
+// Non-Forever updates are deferred to a single question at the end.
 let batch = null; // { running, at, total, name, again, waiting } or { updated, failed, skipped }
 const plural = (n, word) => `${n} ${word}${n === 1 ? "" : "s"}`;
 function renderBatch() {
@@ -540,7 +527,6 @@ async function updateAll() {
   toast(failed.length ? `${msg}. ${failed.length} failed.` : skipped.length ? `${msg}, skipped ${skipped.length}` : msg, failed.length > 0);
 }
 
-// Check re-reads the AddOns folder first, so there is no separate Rescan.
 $("btn-check").onclick = async () => {
   await rescan(true);
   await checkUpdates();
@@ -605,9 +591,9 @@ let detailId = null;
 let detailSeq = 0;
 let detailEntry = null;
 let detailFocus = null;
-let detailPackageKey = null; // installed addon shown in the details pane
-let listScroll = 0; // the list's place, lost while the lower screen hides it for the details
-// Mirrors pick_source in lib.rs: every source installs, Wago only with a key.
+let detailPackageKey = null;
+let listScroll = 0; // restored when the details close
+// Mirrors pick_source in lib.rs.
 function catalogInstallable(e) {
   return e.github || e.wowi || e.tukui || (e.wago && settings?.has_wago_key) || e.curse;
 }
@@ -633,7 +619,7 @@ async function openDetail(id, installedPackage = null) {
   const iconKey = installedPackage ? "p:" + installedPackage.key : "c:" + id;
   const src = icons.get(iconKey);
   $("detail-icon").innerHTML = src ? `<img src="${src}" alt="">` : esc(e.name.replace(/^[^a-z0-9]+/i, "").charAt(0).toUpperCase() || "?");
-  $("detail-icon").dataset.ico = iconKey; // filled in by loadIcons if it arrives later
+  $("detail-icon").dataset.ico = iconKey; // for loadIcons
   $("detail-name").textContent = e.name;
   const bits = [e.category, installedPackage?.source_label || (entry ? sourceLabel(e) : "No update source")];
   if (installedPackage?.installed_version) bits.push(`Installed: ${installedPackage.installed_version}`);
@@ -654,7 +640,6 @@ async function openDetail(id, installedPackage = null) {
   $("detail-open").classList.toggle("hidden", !entryUrl(e));
   renderPackageActions();
   $("detail").classList.remove("hidden");
-  // The details show in the side pane: focus stays on the list for the D-pad.
   if (!more) return;
   let d = null;
   try {
@@ -681,8 +666,6 @@ function closeDetail() {
 function markSelected() {
   document.querySelectorAll("#installed-list .item").forEach((row) => row.classList.toggle("selected", row.dataset.key === detailPackageKey));
 }
-// The installed addon's versions, notes and options, as plain buttons with
-// their explanations.
 function renderPackageActions() {
   const box = $("detail-actions");
   const p = detailPackageKey && packages.find((x) => x.key === detailPackageKey);
@@ -710,9 +693,7 @@ function renderPackageActions() {
     act("remove", "Remove", "Deletes its folders; settings in WTF are kept", "danger") +
     `</div>`;
 }
-// What changed since the installed version, while an update is waiting:
-// fetched once per addon and release when its details open.
-let notesFor = null; // "key|remote version" shown or loading in #detail-changes
+let notesFor = null; // "key|remote version" shown or loading
 async function loadNotes(p) {
   const want = p && p.status === "update" && p.source ? `${p.key}|${p.remote_version}` : null;
   if (want === notesFor) return;
@@ -880,7 +861,7 @@ async function savePath() {
 }
 
 // ---------------------------------------------------------------- Android pickers and sharing
-// MainActivity answers pickers later with afResult(id, value); value is null when cancelled.
+// MainActivity replies via afResult(id, value); null when cancelled.
 const replies = new Map();
 let replySeq = 0;
 window.afResult = (id, value) => {
@@ -896,7 +877,7 @@ function ask(method) {
     A[method](id);
   });
 }
-// A picked folder may be the game folder or the _forever_ inside it.
+// Accepts the game folder or its _forever_.
 async function setGameFolder(path) {
   try {
     return await invoke("set_install_path", { path });
@@ -951,7 +932,6 @@ $("pref-prerelease").addEventListener("change", async (e) => {
 });
 
 // ---------------------------------------------------------------- export / import
-// The list goes out through the share sheet and comes back through the file picker.
 $("btn-export").onclick = async () => {
   if (!A) return;
   try {
@@ -1029,8 +1009,7 @@ $("btn-report-gh").onclick = async () => {
     const d = await diag();
     const body = "**What happened?**\n\n(describe it here)\n\n**Diagnostics**\n```\n" + d.slice(0, 5000) + "\n```";
     const url = `${settings.repo_url}/issues/new?title=${encodeURIComponent("Problem: ")}&body=${encodeURIComponent(body)}`;
-    // Signed-out visitors are bounced to GitHub's login with this URL packed
-    // into return_to; GitHub errors on that once the URL is a few KB.
+    // GitHub's login redirect fails on long return_to URLs.
     if (url.length > 2000) {
       await copyText(d);
       toast("Diagnostics copied, paste them into the issue");
@@ -1050,7 +1029,6 @@ async function checkSelf(manual = false) {
     return;
   }
   if (selfUpdate.available && selfUpdate.latest) {
-    // Android installs the APK itself: the banner links to the release page.
     $("selfupdate-text").innerHTML = `AddonForge <b>${esc(selfUpdate.latest.version)}</b> is out.`;
     $("selfupdate").classList.remove("hidden");
   } else {
@@ -1081,7 +1059,6 @@ $("selfupdate-go").onclick = () => selfUpdate?.latest?.url && openUrl(selfUpdate
   checkSelf(false);
   if (settings?.start_tab?.startsWith("detail:")) { await loadCatalog(false); document.querySelector(`.tab[data-tab="browse"]`)?.click(); openDetail(settings.start_tab.slice(7)); }
   else if (settings?.start_tab) document.querySelector(`.tab[data-tab="${settings.start_tab}"]`)?.click();
-  // One-time note on the first launch after an update.
   invoke("whats_new")
     .then((w) => {
       if (!w) return;
@@ -1092,8 +1069,7 @@ $("selfupdate-go").onclick = () => selfUpdate?.latest?.url && openUrl(selfUpdate
     .catch(() => {});
 })();
 
-// The first launch opens the "All files access" screen over the app. Coming
-// back with no game folder yet, look again now that storage is readable.
+// Retry the folder search after returning from the storage permission screen.
 document.addEventListener("visibilitychange", async () => {
   if (document.visibilityState !== "visible" || settings?.install_path) return;
   await detect();
@@ -1101,7 +1077,6 @@ document.addEventListener("visibilitychange", async () => {
   if (settings?.install_path) { await rescan(); checkUpdates(); }
 });
 
-// Offline: one clear line under the update banner.
 const showNet = () => $("offline").classList.toggle("hidden", navigator.onLine);
 addEventListener("online", showNet);
 addEventListener("offline", showNet);

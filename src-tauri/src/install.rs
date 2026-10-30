@@ -1,18 +1,3 @@
-//! Download a release zip and swap it into `Interface/AddOns` safely.
-//!
-//! Layout rules:
-//!  - work happens inside `<AddOns>/.addonforge-tmp/` so the final step is a
-//!    same-volume rename (atomic per folder), never a slow cross-volume copy;
-//!  - existing folders are moved aside first and restored if anything fails;
-//!  - the zip crate refuses paths that escape the extraction directory;
-//!  - the extracted tree is scanned and refused if it contains anything
-//!    executable (addons are Lua, XML, TOC and media, nothing else);
-//!  - SavedVariables live in `WTF/`, which we never touch;
-//!  - an update that changes the version keeps the folders it replaced in
-//!    `<AddOns>/.addonforge-backup/<key>/` (one per addon), and `restore`
-//!    swaps them back, so a second restore undoes the first. WoW only loads
-//!    folders directly under AddOns, so it never sees these.
-
 use crate::state::Installed;
 use anyhow::{anyhow, Context};
 use futures_util::StreamExt;
@@ -23,26 +8,23 @@ use std::io::Write;
 use std::path::{Path, PathBuf};
 use std::time::{SystemTime, UNIX_EPOCH};
 
+/// Inside AddOns so the final move is a same-volume rename.
 pub const TMP_DIR: &str = ".addonforge-tmp";
 pub const BACKUP_DIR: &str = ".addonforge-backup";
 const MANIFEST: &str = "backup.json";
 
-/// The version an update replaced, kept so it can be put back.
 #[derive(Serialize, Deserialize, Clone, Debug)]
 pub struct Backup {
     pub key: String,
-    /// Its version, for the button.
     pub version: Option<String>,
-    /// Its state.json record; None when AddonForge hadn't installed it.
+    /// None when AddonForge hadn't installed it.
     pub record: Option<Installed>,
-    /// The folders held in the backup.
     pub folders: Vec<String>,
-    /// The folders the version on disk occupies, which a restore swaps out.
+    /// Folders of the version on disk, which a restore swaps out.
     pub current: Vec<String>,
     pub saved_at: u64,
 }
 
-/// What `place` should note about the version it replaces, to keep it.
 pub struct Keep {
     pub key: String,
     pub version: Option<String>,
@@ -51,11 +33,9 @@ pub struct Keep {
 
 pub struct Placed {
     pub folders: Vec<String>,
-    /// The replaced folders were kept as the addon's backup.
     pub kept: bool,
 }
 
-/// File types that have no business inside a WoW addon.
 const FORBIDDEN_EXT: &[&str] = &[
     "exe", "dll", "sys", "scr", "com", "pif", "cpl", "msi", "msp", "bat", "cmd", "ps1", "psm1",
     "vbs", "vbe", "js", "jse", "wsf", "wsh", "hta", "jar", "py", "sh", "lnk", "reg", "inf",
@@ -70,7 +50,6 @@ fn unique() -> String {
     format!("{n:x}")
 }
 
-/// Remove stale temp work from a previous crash.
 pub fn clean_tmp(addons_dir: &Path) {
     let _ = fs::remove_dir_all(addons_dir.join(TMP_DIR));
 }
@@ -119,7 +98,6 @@ fn has_toc(dir: &Path) -> bool {
         .unwrap_or(false)
 }
 
-/// Work out which extracted directories are addon folders.
 fn addon_dirs(extracted: &Path) -> anyhow::Result<Vec<PathBuf>> {
     let mut dirs: Vec<PathBuf> = fs::read_dir(extracted)?
         .flatten()
@@ -130,7 +108,7 @@ fn addon_dirs(extracted: &Path) -> anyhow::Result<Vec<PathBuf>> {
     if dirs.is_empty() {
         anyhow::bail!("zip contains no addon folder");
     }
-    // A wrapper directory (e.g. "MyAddon-1.2/") holding the real folders.
+    // Unwrap a single wrapper directory like "MyAddon-1.2/".
     if dirs.len() == 1 && !has_toc(&dirs[0]) {
         let inner: Vec<PathBuf> = fs::read_dir(&dirs[0])?
             .flatten()
@@ -148,7 +126,7 @@ fn addon_dirs(extracted: &Path) -> anyhow::Result<Vec<PathBuf>> {
     Ok(with_toc)
 }
 
-/// Walk the extracted tree; refuse anything executable. Returns file count.
+/// Errors on anything executable; returns the file count.
 pub fn safety_scan(root: &Path) -> anyhow::Result<usize> {
     fn walk(root: &Path, dir: &Path, depth: usize, count: &mut usize) -> anyhow::Result<()> {
         if depth > 32 {
@@ -167,7 +145,6 @@ pub fn safety_scan(root: &Path) -> anyhow::Result<usize> {
             *count += 1;
             let name = e.file_name().to_string_lossy().to_string();
             let lower = name.to_ascii_lowercase();
-            // "foo.lua.exe" style double extensions are caught by taking the last one.
             let ext = lower.rsplit('.').next().unwrap_or("");
             if lower.contains('.') && FORBIDDEN_EXT.contains(&ext) {
                 anyhow::bail!(
@@ -175,7 +152,7 @@ pub fn safety_scan(root: &Path) -> anyhow::Result<usize> {
                     p.strip_prefix(root).unwrap_or(&p).display()
                 );
             }
-            // Windows also runs by "magic": check the first bytes of anything unusual.
+            // Catch disguised executables by their magic bytes.
             if !matches!(ext, "lua" | "xml" | "toc" | "tga" | "blp" | "png" | "jpg" | "jpeg" | "gif" | "ttf" | "otf" | "mp3" | "ogg" | "wav" | "txt" | "md" | "json" | "html" | "css" | "csv") {
                 if let Ok(mut f) = fs::File::open(&p) {
                     let mut head = [0u8; 4];
@@ -196,9 +173,8 @@ pub fn safety_scan(root: &Path) -> anyhow::Result<usize> {
     Ok(count)
 }
 
-/// Extract `zip_path` and move its addon folders into `addons_dir`,
-/// replacing same-named folders. With `keep`, the folders it replaced become
-/// the addon's backup (a failure to keep them doesn't fail the install).
+/// With `keep`, replaced folders become the backup; failing to keep them
+/// doesn't fail the install.
 pub fn place(zip_path: &Path, addons_dir: &Path, keep: Option<Keep>) -> anyhow::Result<Placed> {
     fs::create_dir_all(addons_dir)?;
     let work = addons_dir.join(TMP_DIR).join(unique());
@@ -268,7 +244,6 @@ pub fn place(zip_path: &Path, addons_dir: &Path, keep: Option<Keep>) -> anyhow::
     });
     let _ = fs::remove_dir_all(&work);
     let _ = fs::remove_file(zip_path);
-    // Leave the tmp root tidy if empty.
     let _ = fs::remove_dir(addons_dir.join(TMP_DIR));
     result
 }
@@ -277,7 +252,6 @@ fn safe_name(f: &str) -> bool {
     !f.is_empty() && !f.starts_with('.') && !f.contains("..") && !f.contains(['/', '\\'])
 }
 
-/// The addon's backup folder name: its key with anything unusual made `_`.
 fn slug(key: &str) -> String {
     key.chars().map(|c| if c.is_ascii_alphanumeric() || matches!(c, '-' | '_') { c } else { '_' }).collect()
 }
@@ -293,8 +267,6 @@ fn write_manifest(dir: &Path, b: &Backup) -> anyhow::Result<()> {
     Ok(())
 }
 
-/// Make `old` (the folders an install just moved aside) the addon's backup,
-/// replacing the one it had.
 fn keep_old(addons_dir: &Path, old: &Path, b: &Backup) -> anyhow::Result<()> {
     let dest = backup_path(addons_dir, &b.key);
     if dest.exists() {
@@ -305,8 +277,7 @@ fn keep_old(addons_dir: &Path, old: &Path, b: &Backup) -> anyhow::Result<()> {
     write_manifest(&dest, b)
 }
 
-/// A backup is usable when its manifest is for this key and every folder it
-/// lists is there.
+/// None unless every folder the manifest lists is present.
 fn read_dir_backup(dir: &Path) -> Option<Backup> {
     let b: Backup = serde_json::from_slice(&fs::read(dir.join(MANIFEST)).ok()?).ok()?;
     let ok = !b.folders.is_empty()
@@ -319,7 +290,6 @@ pub fn read_backup(addons_dir: &Path, key: &str) -> Option<Backup> {
     read_dir_backup(&backup_path(addons_dir, key)).filter(|b| b.key == key)
 }
 
-/// Every usable backup, by package key.
 pub fn read_backups(addons_dir: &Path) -> HashMap<String, Backup> {
     let Ok(rd) = fs::read_dir(addons_dir.join(BACKUP_DIR)) else { return HashMap::new() };
     rd.flatten()
@@ -332,18 +302,14 @@ pub fn remove_backup(addons_dir: &Path, key: &str) {
     let _ = fs::remove_dir_all(backup_path(addons_dir, key));
 }
 
-/// Put the kept version back. The folders it displaces (the version on disk,
-/// described by `version` and `record`) become the backup, so restoring
-/// again undoes this. Every rename is undone if one fails. Returns the
-/// restored version's manifest.
+/// The displaced version (described by `version` and `record`) becomes the
+/// backup, so restoring again undoes this. All-or-nothing.
 pub fn restore(addons_dir: &Path, key: &str, version: Option<String>, record: Option<Installed>) -> anyhow::Result<Backup> {
     let dir = backup_path(addons_dir, key);
     let b = read_backup(addons_dir, key).ok_or_else(|| anyhow!("There is no earlier version of this addon to go back to"))?;
     let work = addons_dir.join(TMP_DIR).join(unique());
     let out = work.join("out");
     fs::create_dir_all(&out)?;
-    // Whatever is in the way: the version on disk, and any folder of the
-    // same name as one coming back.
     let mut in_the_way: Vec<&String> = Vec::new();
     for f in b.current.iter().chain(&b.folders) {
         if !in_the_way.iter().any(|g| g.eq_ignore_ascii_case(f)) {
@@ -379,7 +345,6 @@ pub fn restore(addons_dir: &Path, key: &str, version: Option<String>, record: Op
             return Err(e);
         }
     };
-    // The version just taken out is the backup now.
     let _ = fs::remove_file(dir.join(MANIFEST));
     let mut kept = Vec::new();
     for f in &displaced {
@@ -401,7 +366,6 @@ pub fn restore(addons_dir: &Path, key: &str, version: Option<String>, record: Op
     Ok(b)
 }
 
-/// Delete the given addon folders (used by "Remove").
 pub fn remove_folders(addons_dir: &Path, folders: &[String]) -> anyhow::Result<Vec<String>> {
     let mut gone = Vec::new();
     for f in folders {
@@ -421,10 +385,7 @@ pub fn remove_folders(addons_dir: &Path, folders: &[String]) -> anyhow::Result<V
 mod tests {
     use super::*;
 
-    /// A directory link inside an addon folder (ForeverSVFix made these on
-    /// Windows, pointing at the user's SavedVariables) must be removed with the
-    /// folder, never followed into what it points to. Unix covers the Mac host
-    /// and Android.
+    /// Links inside an addon folder can point at SavedVariables.
     #[test]
     #[cfg(unix)]
     fn removing_a_folder_never_follows_a_link() {
@@ -445,7 +406,6 @@ mod tests {
         let _ = fs::remove_dir_all(&root);
     }
 
-    /// A zip holding `folders`, each with a TOC whose version is `version`.
     fn addon_zip(dir: &Path, version: &str, folders: &[&str]) -> PathBuf {
         let path = dir.join(format!("{}-{version}.zip", unique()));
         let mut z = zip::ZipWriter::new(fs::File::create(&path).unwrap());
@@ -470,7 +430,6 @@ mod tests {
         let root = std::env::temp_dir().join(format!("af-backup-{}", unique()));
         let addons = root.join("AddOns");
         fs::create_dir_all(&addons).unwrap();
-        // v1 has Core + Old; v2 has Core + New (Old is left alone, as before).
         place(&addon_zip(&root, "1", &["Core", "Old"]), &addons, None).unwrap();
         assert!(read_backup(&addons, "github:a/b").is_none(), "a fresh install keeps nothing");
         let placed = place(&addon_zip(&root, "2", &["Core", "New"]), &addons, keep("1")).unwrap();
@@ -490,7 +449,6 @@ mod tests {
         let b = read_backup(&addons, "github:a/b").unwrap();
         assert_eq!((b.version.as_deref(), b.record.as_ref().map(|r| r.version.as_str())), (Some("2"), Some("2")));
 
-        // Restoring again undoes it.
         restore(&addons, "github:a/b", Some("1".into()), None).unwrap();
         assert!(toc(&addons, "Core").contains("Version: 2") && toc(&addons, "New").contains("Version: 2"));
         assert_eq!(read_backup(&addons, "github:a/b").unwrap().version.as_deref(), Some("1"));
@@ -507,15 +465,13 @@ mod tests {
         fs::create_dir_all(&addons).unwrap();
         place(&addon_zip(&root, "1", &["Core"]), &addons, None).unwrap();
         place(&addon_zip(&root, "2", &["Core"]), &addons, keep("1")).unwrap();
-        // A manifest naming a folder the backup lost: not usable.
         let dir = backup_path(&addons, "github:a/b");
         let mut b = read_backup(&addons, "github:a/b").unwrap();
         b.folders.push("Late".into());
         write_manifest(&dir, &b).unwrap();
         assert!(read_backup(&addons, "github:a/b").is_none());
         assert!(restore(&addons, "github:a/b", None, None).is_err());
-        // Late can't move (no write permission for its ".." entry) after Core
-        // has gone back: every move is undone.
+        // Late can't move (its ".." isn't writable) after Core has.
         fs::create_dir_all(dir.join("Late")).unwrap();
         fs::write(addons.join("Late"), "in the way").unwrap();
         fs::set_permissions(dir.join("Late"), fs::Permissions::from_mode(0o555)).unwrap();
@@ -541,7 +497,6 @@ mod tests {
         let err = safety_scan(&root).unwrap_err().to_string();
         assert!(err.contains("SAFETY"), "{err}");
         fs::remove_file(addon.join("helper.exe")).unwrap();
-        // Disguised: no extension, MZ header.
         fs::write(addon.join("README"), b"MZ\x90\x00").unwrap();
         assert!(safety_scan(&root).is_err());
         let _ = fs::remove_dir_all(&root);

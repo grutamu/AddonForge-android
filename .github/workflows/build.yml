@@ -1,7 +1,5 @@
 name: Build and test
 
-# Host checks for the Android app, on macOS like the owner's machine:
-# Rust unit tests, the UI checks and the security gate.
 on:
   pull_request:
     paths-ignore:

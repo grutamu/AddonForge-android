@@ -1,15 +1,9 @@
-//! Wago Addons (addons.wago.io).
-//!
-//! Wago's external API needs an API key. Keys are free from
-//! https://addons.wago.io/account/apikeys and the user pastes their own into
-//! Settings; it is stored locally and only ever sent to addons.wago.io.
-
 use super::{Note, Remote};
 use serde_json::Value;
 
 pub const KEY_URL: &str = "https://addons.wago.io/account/apikeys";
 
-/// The release we'd install and its channel (stable | beta | alpha).
+/// (channel, release)
 async fn release(client: &reqwest::Client, id: &str, key: Option<&str>, prerelease: bool) -> anyhow::Result<(&'static str, Value)> {
     let key = key
         .map(str::trim)
@@ -24,7 +18,6 @@ async fn release(client: &reqwest::Client, id: &str, key: Option<&str>, prerelea
     }
     let mut v: Value = resp.error_for_status()?.json().await?;
     let recent = v["recent_release"].take();
-    // Stable first unless the user allows beta builds; alpha only as a last resort.
     let order: &[&'static str] = if prerelease { &["beta", "stable", "alpha"] } else { &["stable", "beta", "alpha"] };
     order
         .iter()
@@ -63,7 +56,6 @@ pub async fn resolve(
     })
 }
 
-/// The changelog of the release we'd install (Markdown).
 pub async fn notes(client: &reqwest::Client, id: &str, key: Option<&str>, prerelease: bool) -> anyhow::Result<Vec<Note>> {
     let (_, rel) = release(client, id, key, prerelease).await?;
     let version = rel["label"].as_str().or_else(|| rel["version"].as_str()).unwrap_or("").to_string();

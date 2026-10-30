@@ -1,5 +1,3 @@
-//! TukUI (ElvUI / Tukui) public API. No key needed.
-
 use super::{Note, Remote};
 use serde::Deserialize;
 
@@ -11,7 +9,6 @@ struct TukAddon {
     url: String,
     #[serde(default)]
     patch: Vec<String>,
-    /// A Markdown file with every version's notes, newest first.
     #[serde(default)]
     changelog_url: String,
 }
@@ -40,7 +37,6 @@ pub async fn resolve(client: &reqwest::Client, slug: &str) -> anyhow::Result<Rem
     })
 }
 
-/// The addon's changelog: every version, newest first.
 pub async fn notes(client: &reqwest::Client, slug: &str) -> anyhow::Result<Vec<Note>> {
     let a = addon(client, slug).await?;
     if !a.changelog_url.starts_with("https://") {

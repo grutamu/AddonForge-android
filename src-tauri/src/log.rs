@@ -1,9 +1,3 @@
-//! Tiny local log: `addonforge.log` beside the state file.
-//!
-//! Local only, never uploaded. Rotates once past ~1 MB (one `.1` backup).
-//! The "Report a problem" button attaches the tail of this file so bug
-//! reports arrive with something useful in them.
-
 use std::fs::{self, File, OpenOptions};
 use std::io::Write;
 use std::path::PathBuf;
@@ -27,12 +21,12 @@ fn open() -> Option<File> {
     OpenOptions::new().create(true).append(true).open(p).ok()
 }
 
-/// Wall-clock stamp as `YYYY-MM-DD HH:MM:SS` UTC (no chrono dependency).
+/// `YYYY-MM-DD HH:MM:SS` UTC
 fn stamp() -> String {
     let secs = SystemTime::now().duration_since(UNIX_EPOCH).map(|d| d.as_secs()).unwrap_or(0);
     let days = secs / 86400;
     let (h, m, s) = ((secs % 86400) / 3600, (secs % 3600) / 60, secs % 60);
-    // Civil-from-days (Howard Hinnant), good for the range we care about.
+    // Hinnant's civil-from-days.
     let z = days as i64 + 719468;
     let era = z.div_euclid(146097);
     let doe = z.rem_euclid(146097);
@@ -69,7 +63,6 @@ macro_rules! loge {
     ($($arg:tt)*) => { $crate::log::write("error", &format!($($arg)*)) };
 }
 
-/// Last `n` lines of the log for diagnostics.
 pub fn tail(n: usize) -> String {
     let text = fs::read_to_string(path()).unwrap_or_default();
     let lines: Vec<&str> = text.lines().collect();

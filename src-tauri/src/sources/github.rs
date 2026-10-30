@@ -1,13 +1,3 @@
-//! GitHub releases.
-//!
-//! Preferred path needs no API and has no rate limit: the BigWigs packager
-//! uploads a `release.json` to every release describing each zip and the
-//! flavours it supports. We fetch it through the stable
-//! `releases/latest/download/<file>` redirect. If a repo has releases but no
-//! release.json we fall back to the REST API (60 requests/hour
-//! unauthenticated). With pre-releases allowed we must use the API to list
-//! releases (the `latest` redirect never points at a pre-release).
-
 use super::{names_every_version, normalize_version, Note, Remote};
 use serde::Deserialize;
 
@@ -63,7 +53,7 @@ fn is_forever(m: &Meta) -> bool {
         || crate::wow::FOREVER_INTERFACE_RANGE.contains(&m.interface)
 }
 
-/// Pick from a release.json. `url_for` maps a filename to its download URL.
+/// `url_for` maps a filename to its download URL.
 fn pick_from_release_json(
     rj: ReleaseJson,
     url_for: impl Fn(&str) -> String,
@@ -116,7 +106,6 @@ async fn from_api_release(
     rel: ApiRelease,
     asset_hint: Option<&str>,
 ) -> anyhow::Result<Remote> {
-    // Prefer the packager's release.json if this release has one.
     if let Some(rj_asset) = rel.assets.iter().find(|a| a.name == "release.json") {
         if let Ok(resp) = client.get(&rj_asset.browser_download_url).send().await {
             if resp.status().is_success() {
@@ -172,7 +161,7 @@ pub async fn resolve(
     let repo = repo.trim().trim_matches('/');
 
     if prerelease {
-        // Newest release including pre-releases (one API call).
+        // The `latest` redirect never points at a pre-release.
         let api = format!("https://api.github.com/repos/{repo}/releases?per_page=5");
         let resp = client
             .get(&api)
@@ -197,7 +186,7 @@ pub async fn resolve(
         return pick_from_release_json(rj, |name| format!("{base}{name}"), false);
     }
 
-    // No release.json: ask the API for the latest release's assets.
+    // No release.json: fall back to the rate-limited API.
     let api = format!("https://api.github.com/repos/{repo}/releases/latest");
     let resp = client
         .get(&api)
@@ -211,8 +200,8 @@ pub async fn resolve(
     from_api_release(client, rel, asset_hint).await
 }
 
-/// Notes of the releases newer than `installed` (at most five), from one
-/// API call. When the installed version isn't among them, only the latest.
+/// Up to five releases newer than `installed`; only the latest when it
+/// isn't among them.
 pub async fn notes(
     client: &reqwest::Client,
     repo: &str,

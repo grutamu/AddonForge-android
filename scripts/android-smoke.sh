@@ -1,11 +1,6 @@
 #!/usr/bin/env bash
-# Smoke test on an attached Android device (the AYN Thor): optionally install
-# an APK, launch AddonForge, walk every tab with the gamepad, and fail on a
-# crash. Screenshots of the top screen land in the output folder to look at.
-#
-#   scripts/android-smoke.sh [path/to/app.apk] [out-dir]
-#
-# Uses only adb. Doesn't change addons: it never presses A on an addon action.
+# Usage: scripts/android-smoke.sh [path/to/app.apk] [out-dir]
+# Never presses A on an addon action, so addons are left untouched.
 set -euo pipefail
 apk=${1:-}
 out=${2:-${TMPDIR:-/tmp}/addonforge-smoke}
@@ -15,7 +10,7 @@ mkdir -p "$out"
 adb get-state >/dev/null || { echo "No device attached." >&2; exit 1; }
 if [ -n "$apk" ]; then adb install -r "$apk" >/dev/null && echo "installed $apk"; fi
 
-# The Thor has two screens; screenshot the first (top) display.
+# Top screen.
 display=$(adb shell dumpsys SurfaceFlinger --display-id 2>/dev/null | sed -n 's/^Display \([0-9]*\).*/\1/p' | head -1)
 shot() { adb exec-out screencap -p ${display:+-d "$display"} > "$out/$1.png"; }
 pad() { adb shell input gamepad keyevent "KEYCODE_$1"; sleep "${2:-0.5}"; }

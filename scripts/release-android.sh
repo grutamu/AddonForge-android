@@ -1,12 +1,6 @@
 #!/usr/bin/env bash
-# Tag today's Android release. The "Android release" workflow then builds,
-# signs and publishes AddonForge-android-<name>.apk.
-#
-#   scripts/release-android.sh "What changed (shown on the release page)"
-#
-# Releases are named by date, not x.y.z: android-2026.10.14, then
-# android-2026.10.14-2, -3 … for more releases the same day. The name has no
-# zero padding because it is also the Android versionName (must be semver).
+# Usage: scripts/release-android.sh "release notes"
+# No zero padding in the tag: it doubles as the semver versionName.
 set -euo pipefail
 cd "$(dirname "$0")/.."
 

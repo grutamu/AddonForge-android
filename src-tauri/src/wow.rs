@@ -1,30 +1,22 @@
-//! WoW install discovery and addon folder / TOC scanning.
-//!
-//! Everything here is local disk only. No network.
-
 use serde::Serialize;
 use std::fs;
 use std::path::{Path, PathBuf};
 
-/// Interface numbers that mean "WoW: Forever" (1.60.x -> 160xx).
 pub const FOREVER_INTERFACE_RANGE: std::ops::RangeInclusive<u32> = 16000..=16999;
 
-/// TOC suffixes the game (and Wago's data endpoint) recognise for Forever.
 pub const FOREVER_TOC_SUFFIXES: &[&str] = &["_Forever", "-Forever", "_Camelot", "-Camelot"];
 
 #[derive(Serialize, Clone, Debug)]
 pub struct WowInstall {
-    /// Absolute path of the product folder, e.g. `/storage/emulated/0/WoW Forever/_forever_`.
+    /// Product folder, e.g. `.../WoW Forever/_forever_`.
     pub path: String,
-    /// Product code from `.flavor.info`, e.g. `wowf`.
+    /// From `.flavor.info`, e.g. `wowf`.
     pub product: String,
-    /// Our flavour id: `forever` or `other`.
+    /// forever | other
     pub flavor: String,
-    /// Human label.
     pub label: String,
 }
 
-/// Map Blizzard product codes to the flavour we support.
 pub fn product_flavor(product: &str) -> (&'static str, String) {
     match product {
         "wowf" => ("forever", "WoW: Forever".into()),
@@ -42,21 +34,17 @@ fn read_flavor_info(product_dir: &Path) -> Option<String> {
     text.lines().nth(1).map(|s| s.trim().to_string()).filter(|s| !s.is_empty())
 }
 
-/// Describe a product folder the user picked or we discovered.
 pub fn describe_install(product_dir: &Path) -> Option<WowInstall> {
     if !product_dir.join("Interface").join("AddOns").is_dir()
         && !product_dir.join("Interface").is_dir()
         && !product_dir.join("WTF").is_dir()
     {
-        // Not a WoW product folder at all.
         if read_flavor_info(product_dir).is_none() {
             return None;
         }
     }
     let product = read_flavor_info(product_dir).unwrap_or_else(|| {
-        // No `.flavor.info` (e.g. a copied install): fall back to the folder name.
-        // The Forever client lives in `_forever_`; map it to its real product code
-        // so it's still recognised as Forever without the flavour file.
+        // No `.flavor.info` (copied installs): infer from the folder name.
         let name = product_dir
             .file_name()
             .map(|s| s.to_string_lossy().trim_matches('_').to_string())
@@ -76,7 +64,6 @@ pub fn describe_install(product_dir: &Path) -> Option<WowInstall> {
     })
 }
 
-/// Push every `_*_` product folder directly under `root`.
 fn scan_root(root: &Path, found: &mut Vec<WowInstall>) {
     let Ok(rd) = fs::read_dir(root) else { return };
     for entry in rd.flatten() {
@@ -90,10 +77,8 @@ fn scan_root(root: &Path, found: &mut Vec<WowInstall>) {
     }
 }
 
-/// The game root (the wow-forever-android launcher's folder) is any folder
-/// holding `.build.info`, default `/storage/emulated/0/WoW Forever`, often
-/// moved to Download/ or an SD card. Look one level deep in each storage
-/// volume and in its Download folder.
+/// Game roots hold `.build.info`; checks one level deep in each storage
+/// volume and its Download folder.
 pub fn find_installs() -> Vec<WowInstall> {
     let mut volumes = vec![PathBuf::from("/storage/emulated/0")];
     if let Ok(rd) = fs::read_dir("/storage") {
@@ -124,7 +109,6 @@ fn find_installs_in(volumes: &[PathBuf]) -> Vec<WowInstall> {
 }
 
 fn sort_installs(mut found: Vec<WowInstall>) -> Vec<WowInstall> {
-    // Forever first, then the rest, stable by path.
     found.sort_by(|a, b| {
         (a.flavor != "forever")
             .cmp(&(b.flavor != "forever"))
@@ -146,14 +130,12 @@ pub struct AddonFolder {
     pub curse: Option<u64>,
     pub wowi: Option<u64>,
     pub website: Option<String>,
-    /// True when a `_Forever` / `_Camelot` TOC exists.
     pub forever_toc: bool,
-    /// True when any Interface number is in the Forever range.
     pub forever_interface: bool,
     pub dependencies: Vec<String>,
-    /// `## X-Part-Of: Parent` — this folder is a module of another addon.
+    /// `## X-Part-Of`
     pub part_of: Option<String>,
-    /// `## IconTexture:` — a file path under Interface\AddOns\ or a game-internal icon name.
+    /// `## IconTexture`: a path under Interface\AddOns\ or a game-internal icon.
     pub icon_texture: Option<String>,
 }
 
@@ -163,7 +145,7 @@ impl AddonFolder {
     }
 }
 
-/// Strip WoW colour / texture escape codes from a TOC title.
+/// Strips colour and texture escape codes.
 pub fn clean_title(raw: &str) -> String {
     let mut out = String::with_capacity(raw.len());
     let mut chars = raw.chars().peekable();
@@ -286,7 +268,6 @@ fn parse_toc(path: &Path, into: &mut AddonFolder) -> bool {
     true
 }
 
-/// Scan `<install>\Interface\AddOns` and parse each folder's TOC.
 pub fn scan_addons(install: &Path) -> Vec<AddonFolder> {
     let addons = install.join("Interface").join("AddOns");
     let Ok(rd) = fs::read_dir(&addons) else { return Vec::new() };
@@ -315,7 +296,6 @@ pub fn scan_addons(install: &Path) -> Vec<AddonFolder> {
             any |= parse_toc(&generic, &mut af);
         }
         if !any {
-            // Case-insensitive fallback: any *.toc in the folder.
             if let Ok(inner) = fs::read_dir(&p) {
                 for f in inner.flatten() {
                     let fname = f.file_name().to_string_lossy().to_string();
@@ -332,8 +312,7 @@ pub fn scan_addons(install: &Path) -> Vec<AddonFolder> {
         if !any {
             continue; // not an addon folder
         }
-        // The TOC we read has no Version (Questie.toc): its flavour siblings
-        // come from the same release and usually do.
+        // Borrow Version from a sibling flavour TOC of the same release.
         if af.version.is_none() {
             if let Ok(inner) = fs::read_dir(&p) {
                 for f in inner.flatten() {
@@ -367,19 +346,15 @@ mod tests {
     fn finds_game_roots_on_a_volume_and_in_download() {
         let vol = std::env::temp_dir().join(format!("af-vol-{}", std::process::id()));
         let _ = std::fs::remove_dir_all(&vol);
-        // The launcher's default folder, marked by .build.info.
         let a = vol.join("WoW Forever").join("_forever_");
         std::fs::create_dir_all(a.join("Interface").join("AddOns")).unwrap();
         std::fs::write(vol.join("WoW Forever").join(".build.info"), "").unwrap();
         std::fs::write(a.join(".flavor.info"), "Product Flavor!STRING:0\nwowf\n").unwrap();
-        // Copied into Download without .build.info, found by its _forever_.
         let b = vol.join("Download").join("World of Warcraft").join("_forever_");
         std::fs::create_dir_all(b.join("WTF")).unwrap();
-        // Not a game root: neither marker, so its _x_ folder is never looked at.
         std::fs::create_dir_all(vol.join("Download").join("Photos").join("_x_").join("WTF")).unwrap();
         let found = find_installs_in(&[vol.clone()]);
         let paths: Vec<&str> = found.iter().map(|i| i.path.as_str()).collect();
-        // Sorted by path within Forever installs.
         assert_eq!(paths, vec![b.to_string_lossy(), a.to_string_lossy()], "{found:?}");
         assert!(found.iter().all(|i| i.flavor == "forever"), "{found:?}");
         let _ = std::fs::remove_dir_all(&vol);

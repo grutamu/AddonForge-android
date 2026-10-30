@@ -29,15 +29,12 @@ import org.json.JSONObject
 import java.io.File
 import kotlin.math.abs
 
-// The Thor is driven by its gamepad. Every pad button and the system Back
-// are consumed here and handed to the UI as `afPad("<NAME>")`, so the UI owns
-// navigation and Android's fallbacks (B → Back, A → D-pad centre) never fire.
+// Pad buttons and Back are consumed and sent to the page as afPad("NAME").
 class MainActivity : TauriActivity() {
   private var webView: WebView? = null
   private val main = Handler(Looper.getMainLooper())
 
-  // System pickers answer later: the UI passes an id and gets
-  // `afResult(id, value)` back (value null when cancelled).
+  // Picker results go to afResult(id, value); null when cancelled.
   private var pendingId = ""
   private val treePicker = registerForActivityResult(ActivityResultContracts.OpenDocumentTree()) { uri ->
     reply(pendingId, uri?.let { treeToPath(it) })
@@ -46,7 +43,6 @@ class MainActivity : TauriActivity() {
     reply(pendingId, uri?.let { copyToCache(it, "import.json") })
   }
 
-  // Set by the launcher shortcut (long-press the icon → "Update all").
   private var launchAction = ""
 
   override fun onCreate(savedInstanceState: Bundle?) {
@@ -72,8 +68,7 @@ class MainActivity : TauriActivity() {
     main.post { webView?.evaluateJavascript("window.afResult && window.afResult(${JSONObject.quote(id)}, $v)", null) }
   }
 
-  // We have "All files access", so a picked folder is used by its path:
-  // primary:Download/WoW → /storage/emulated/0/Download/WoW, 1A2B-3C4D:WoW → /storage/1A2B-3C4D/WoW.
+  // primary:Download/WoW → /storage/emulated/0/Download/WoW, 1A2B-3C4D:WoW → /storage/1A2B-3C4D/WoW
   private fun treeToPath(uri: Uri): String? {
     val id = DocumentsContract.getTreeDocumentId(uri) ?: return null
     val volume = id.substringBefore(':')
@@ -92,13 +87,10 @@ class MainActivity : TauriActivity() {
 
   override fun onWebViewCreate(webView: WebView) {
     this.webView = webView
-    // Android draws a translucent "focused view" wash over the whole WebView in
-    // key-navigation mode; the UI draws its own focus ring.
+    // The UI draws its own focus ring.
     webView.defaultFocusHighlightEnabled = false
     webView.addJavascriptInterface(Bridge(), "AddonForgeAndroid")
-    // Edge to edge (targetSdk 35+) the window no longer shrinks for the
-    // keyboard. When it opens on this screen (the app on the Thor's lower
-    // screen) lift the page above it; on the other screen the inset is 0.
+    // Edge to edge, the window no longer resizes for the keyboard.
     val content = findViewById<View>(android.R.id.content)
     ViewCompat.setOnApplyWindowInsetsListener(window.decorView) { v, insets ->
       content.setPadding(0, 0, 0, insets.getInsets(WindowInsetsCompat.Type.ime()).bottom)
@@ -114,16 +106,13 @@ class MainActivity : TauriActivity() {
     }
   }
 
-  // Full screen: status and navigation bars stay hidden until swiped in.
   private fun hideSystemBars() {
     val c = WindowCompat.getInsetsController(window, window.decorView)
     c.systemBarsBehavior = WindowInsetsControllerCompat.BEHAVIOR_SHOW_TRANSIENT_BARS_BY_SWIPE
     c.hide(WindowInsetsCompat.Type.systemBars())
   }
 
-  // Pad input must land in a focused WebView or the page draws no focus ring.
-  // Key presses take Android out of touch mode (which focuses it); a D-pad
-  // that reports as a hat, or the stick, never does, so ask for focus here.
+  // Hat and stick input don't leave touch mode, so the WebView needs focus requested.
   private fun focusWebView() {
     webView?.let { if (!it.hasFocus()) it.requestFocus() }
   }
@@ -167,15 +156,13 @@ class MainActivity : TauriActivity() {
     // Typing keyboards keep their arrow keys; pads get UI navigation.
     val name = padName(event.keyCode) ?: if (dir != null && fromPad(event)) dir else null
     if (name != null) {
-      // Held directions auto-repeat; held buttons fire once.
       if (event.action == KeyEvent.ACTION_DOWN && (dir != null || event.repeatCount == 0)) send(name)
       return true
     }
     return super.dispatchKeyEvent(event)
   }
 
-  // D-pads that report as a hat, and the left stick, become UP/DOWN/LEFT/RIGHT
-  // with key-like auto-repeat while held.
+  // Hat and stick directions, auto-repeated while held.
   private var heldDir: String? = null
   private val repeat = object : Runnable {
     override fun run() {
@@ -211,8 +198,6 @@ class MainActivity : TauriActivity() {
   }
 
   inner class Bridge {
-    // AddonForge edits <game folder>/Interface/AddOns in shared storage,
-    // which another app created, so it needs "All files access".
     @JavascriptInterface
     fun hasFileAccess(): Boolean = Environment.isExternalStorageManager()
 
@@ -225,8 +210,7 @@ class MainActivity : TauriActivity() {
       }
     }
 
-    // Selecting a search box with A: bring up the keyboard, which a
-    // script-driven focus doesn't do on its own.
+    // Script-driven focus doesn't open the keyboard.
     @JavascriptInterface
     fun showKeyboard() = main.post {
       webView?.let {
@@ -244,11 +228,10 @@ class MainActivity : TauriActivity() {
     @JavascriptInterface
     fun pickFile(id: String) = main.post { pendingId = id; filePicker.launch(arrayOf("application/json", "text/plain", "application/octet-stream")) }
 
-    // Where the UI writes files it wants to share (the export).
     @JavascriptInterface
     fun cacheDir(): String = this@MainActivity.cacheDir.absolutePath
 
-    // Share sheet for a file in the cache or the app's files folder (see res/xml/file_paths.xml).
+    // Paths must be allowed by res/xml/file_paths.xml.
     @JavascriptInterface
     fun share(path: String, mime: String, subject: String) = main.post {
       try {
@@ -265,7 +248,6 @@ class MainActivity : TauriActivity() {
       }
     }
 
-    // Installs and updates keep the screen on, so a long Update all isn't cut short by sleep.
     @JavascriptInterface
     fun keepAwake(on: Boolean) = main.post {
       if (on) window.addFlags(WindowManager.LayoutParams.FLAG_KEEP_SCREEN_ON)
@@ -275,7 +257,6 @@ class MainActivity : TauriActivity() {
     @JavascriptInterface
     fun haptic() = main.post { webView?.performHapticFeedback(HapticFeedbackConstants.CONFIRM) }
 
-    // The launcher shortcut's action, once.
     @JavascriptInterface
     fun takeLaunchAction(): String = launchAction.also { launchAction = "" }
   }

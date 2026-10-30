@@ -1,10 +1,7 @@
-// UI behavior checks without starting Tauri or changing the user's addons.
 const assert = require('node:assert/strict');
 const fs = require('node:fs');
 const vm = require('node:vm');
-// The fake DOM below makes up any id it's asked for, so it can't notice markup
-// that was deleted. Check every literal $("id") / getElementById("id") in ui/*.js
-// against index.html (and ids the scripts create in their own templates).
+// The fake DOM invents any id, so check ids against index.html directly.
 {
   const html = fs.readFileSync('ui/index.html', 'utf8');
   const scripts = fs.readdirSync('ui').filter((f) => f.endsWith('.js')).map((f) => [f, fs.readFileSync(`ui/${f}`, 'utf8')]);
@@ -31,7 +28,7 @@ const document = {
   addEventListener() {}, removeEventListener() {}, activeElement: element('previous'),
 };
 let detailReply;
-// Commands the tests answer: name -> (args) => reply (a value, or a rejected promise for an error).
+// name -> (args) => value or rejected promise
 const handlers = {};
 const calls = [];
 const context = vm.createContext({
@@ -94,7 +91,7 @@ assert.match(element('installed-list').innerHTML, /Discover addons/);
   assert.match(element('detail-body').innerHTML, /Local&lt;folder&gt;/);
   assert.equal(run('entryUrl(detailEntry)'), 'https://example.test/addon');
   run('closeDetail()');
-  // An installed addon's actions live in the details pane (there is no row menu).
+  // Details pane actions.
   run(`packages = [{key:'up',name:'Up',folders:['Up'],source:true,source_label:'GitHub',status:'update',supports_forever:true,missing_deps:[],installed_version:'1 <old>',remote_version:'2'}]`);
   await run('openDetail(null, packages[0])');
   const actions = element('detail-actions').innerHTML;
@@ -113,8 +110,7 @@ assert.match(element('installed-list').innerHTML, /Discover addons/);
   await loading;
   assert.equal(element('detail-body').innerHTML, before, 'Closed dialogs ignore late responses');
 
-  // Update all: one at a time, failures collected, the "no Forever build"
-  // question asked once at the end, and a summary that counts what happened.
+  // Update all.
   const tick = () => new Promise((resolve) => setTimeout(resolve, 0));
   const answerModal = async (yes) => {
     for (let i = 0; i < 50 && !element('modal-yes').onclick; i++) await tick();
@@ -141,7 +137,6 @@ assert.match(element('installed-list').innerHTML, /Discover addons/);
   assert.match(element('batch').innerHTML, /Show what needs attention/);
   assert.equal(element('toast').textContent, 'Updated 3 of 4. 1 failed.');
   assert.equal(run('packages.find((p) => p.key === "bad <x>").status'), 'error');
-  // Declining the question skips them, and the summary says so.
   batchPackages();
   handlers.update_package = ({ key, allowNonForever }) => (key === 'ok2' || allowNonForever ? { ...pkg(key), status: 'ok' } : Promise.reject('NOT_FOREVER'));
   updating = run('updateAll()');
@@ -150,12 +145,11 @@ assert.match(element('installed-list').innerHTML, /Discover addons/);
   assert.match(element('batch').innerHTML, /1 updated · 3 skipped/);
   assert.match(element('batch').innerHTML, /Skipped, no Forever build: ok1, bad &lt;x&gt;, nofv/);
   assert.equal(element('toast').textContent, 'Updated 1 of 4, skipped 3');
-  // A new check clears the summary.
   handlers.check_updates = () => [];
   await run('checkUpdates(true)');
   assert.equal(element('batch').innerHTML, '');
 
-  // An addon with an update waiting shows what's new, escaped; a CurseForge one says it has no notes.
+  // Release notes.
   handlers.release_notes = () => [{ version: 'v2', text: 'Fixed <script> tags' }, { version: 'v1.5', text: 'Older' }];
   run(`packages = [${JSON.stringify(pkg('notes'))}]`);
   await run('openDetail(null, packages[0])');
@@ -171,7 +165,7 @@ assert.match(element('installed-list').innerHTML, /Discover addons/);
   assert.match(element('detail-changes').innerHTML, /CurseForge doesn't share release notes/);
   run('closeDetail()');
 
-  // Go back: offered when there's a backup; going back past the latest pins it, and Undo unpins.
+  // Go back to the previous version.
   run(`packages = [${JSON.stringify(pkg('rb', { status: 'ok', installed_version: '2', backup: { version: '1 <old>', saved_at: 1 } }))}]`);
   await run('openDetail(null, packages[0])');
   assert.match(element('detail-actions').innerHTML, />Go back to 1 &lt;old&gt;</);

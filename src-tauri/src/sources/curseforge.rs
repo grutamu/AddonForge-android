@@ -1,12 +1,3 @@
-//! CurseForge.
-//!
-//! We have no CurseForge API key (their keys can't ship in an open-source
-//! app), so this goes around the API: cfwidget.com, a third-party service
-//! that mirrors each project's public file list, says what the latest file
-//! is, and the zip comes from mediafilez.forgecdn.net, CurseForge's file
-//! storage, which still serves files without a key. Either can stop working
-//! at any time; the addon then falls back to its CurseForge link.
-
 use super::Remote;
 use serde::Deserialize;
 
@@ -16,7 +7,7 @@ struct Project {
     files: Vec<File>,
     #[serde(default)]
     summary: String,
-    /// The project page as HTML.
+    /// HTML
     #[serde(default)]
     description: String,
     #[serde(default)]
@@ -33,7 +24,7 @@ struct File {
     /// release | beta | alpha
     #[serde(default, rename = "type")]
     kind: String,
-    /// Game versions, "1.60.1" for Forever.
+    /// e.g. "1.60.1" for Forever
     #[serde(default)]
     versions: Vec<String>,
 }
@@ -41,7 +32,6 @@ struct File {
 pub async fn resolve(client: &reqwest::Client, id: u64, prerelease: bool) -> anyhow::Result<Remote> {
     let resp = client.get(format!("https://api.cfwidget.com/{id}")).send().await?;
     match resp.status().as_u16() {
-        // cfwidget fetches projects it hasn't seen yet in the background.
         202 => anyhow::bail!("cfwidget is still fetching this CurseForge project, try again in a minute"),
         404 => anyhow::bail!("cfwidget doesn't know CurseForge project {id}"),
         _ => {}
@@ -60,14 +50,12 @@ pub async fn resolve(client: &reqwest::Client, id: u64, prerelease: bool) -> any
     })
 }
 
-/// The project's summary line, its description as plain text, and its
-/// thumbnail, for the details pane.
+/// (summary, description as plain text, thumbnail)
 pub async fn details(client: &reqwest::Client, id: u64) -> Option<(String, String, Option<String>)> {
     let p: Project = client.get(format!("https://api.cfwidget.com/{id}")).send().await.ok()?.error_for_status().ok()?.json().await.ok()?;
     Some((p.summary, html_text(&p.description), p.thumbnail))
 }
 
-/// Tags dropped, entities for the common characters decoded, whitespace collapsed.
 fn html_text(html: &str) -> String {
     let mut out = String::new();
     let mut in_tag = false;
@@ -86,10 +74,9 @@ fn html_text(html: &str) -> String {
     out.split_whitespace().collect::<Vec<_>>().join(" ")
 }
 
-/// Newest Forever file: releases first, then betas, alpha only as a last
-/// resort; with betas allowed a newer beta beats an older release. No
-/// Forever file at all: the same pick over every flavour, flagged so the
-/// install asks first.
+/// Newest Forever file by release > beta > alpha (with betas allowed, the
+/// newer of release and beta). Without one, picks from every flavour and
+/// returns false so the install asks first.
 fn pick(files: &[File], prerelease: bool) -> Option<(&File, bool)> {
     let newest = |forever: bool, kind: &str| {
         files
@@ -105,7 +92,7 @@ fn pick(files: &[File], prerelease: bool) -> Option<(&File, bool)> {
     best(true).map(|f| (f, true)).or_else(|| best(false).map(|f| (f, false)))
 }
 
-/// `files/{id / 1000}/{id % 1000}/{name}`; the last part loses leading zeros.
+/// `files/{id / 1000}/{id % 1000}/{name}`, no leading zeros.
 fn cdn_url(id: u64, name: &str) -> String {
     let enc: String = name
         .bytes()

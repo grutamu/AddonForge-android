@@ -1,5 +1,3 @@
-//! AddonForge core: Tauri commands the UI calls over IPC.
-
 mod catalog;
 mod icons;
 mod install;
@@ -20,22 +18,20 @@ use tauri::State;
 use tokio::sync::{Mutex, Semaphore};
 use wow::{AddonFolder, WowInstall};
 
-/// What the addon sites see: this fork, so its traffic isn't taken for upstream's.
 pub const USER_AGENT: &str = concat!(
     "AddonForge-android/",
     env!("CARGO_PKG_VERSION"),
     " (+https://github.com/grutamu/AddonForge-android)"
 );
-/// Where "Report on GitHub" files issues: this fork, not upstream.
 pub const REPO_URL: &str = "https://github.com/grutamu/AddonForge-android";
 
 struct App {
     client: reqwest::Client,
     state: Mutex<AppState>,
     catalog: Mutex<Option<(Catalog, &'static str)>>,
-    /// icon key -> data URL, for this run (disk cache underneath).
+    /// icon key -> data URL
     icon_cache: Mutex<HashMap<String, Option<String>>>,
-    /// "key|source|installed version" -> release notes, for this run.
+    /// "key|source|installed version" -> release notes
     notes_cache: Mutex<HashMap<String, Vec<sources::Note>>>,
 }
 
@@ -54,7 +50,7 @@ pub struct MissingDep {
     pub name: Option<String>,
 }
 
-/// The version an update replaced, which Roll back puts back.
+/// The version Roll back restores.
 #[derive(Serialize, Clone, Debug)]
 pub struct BackupInfo {
     pub version: Option<String>,
@@ -67,9 +63,8 @@ pub struct Package {
     pub name: String,
     pub folders: Vec<String>,
     pub installed_version: Option<String>,
-    /// Unmanaged packages: every folder's own TOC version. A bundle release
-    /// (Questie's "v12.1.0+v1.0.6" = Questie 12.1.0 + QuestieDB 1.0.6) is
-    /// up to date when it names each of them.
+    /// Unmanaged only: each folder's TOC version. A bundle release such as
+    /// "v12.1.0+v1.0.6" is current when it names all of them.
     #[serde(skip)]
     pub folder_versions: Vec<String>,
     pub author: Option<String>,
@@ -79,15 +74,14 @@ pub struct Package {
     pub source_url: Option<String>,
     pub curse_id: Option<u64>,
     pub catalog_id: Option<String>,
-    /// Catalogue `notice` for this addon, shown on its row.
     pub notice: Option<String>,
     pub supports_forever: bool,
-    /// True when AddonForge installed this itself (exact version known).
+    /// Installed by AddonForge, so the exact version is known.
     pub managed: bool,
     pub pinned: bool,
     pub ignored: bool,
     pub missing_deps: Vec<MissingDep>,
-    /// `## IconTexture` of the first folder that has one (resolved lazily by `package_icons`).
+    /// `## IconTexture` of the first folder that has one.
     pub icon_texture: Option<String>,
     pub remote_version: Option<String>,
     pub remote_forever: Option<bool>,
@@ -103,13 +97,14 @@ fn addons_dir(install: &str) -> PathBuf {
     Path::new(install).join("Interface").join("AddOns")
 }
 
+/// Recorded install source, then catalogue GitHub, Wago (with a key), WoWI,
+/// Tukui, then TOC hints, then CurseForge, then keyless Wago.
 fn pick_source(
     entry: Option<&CatalogEntry>,
     f: &AddonFolder,
     has_wago: bool,
     managed: Option<&Installed>,
 ) -> Option<Source> {
-    // What we installed it from wins: it's what the user chose.
     if let Some(m) = managed {
         if let Some(s) = Source::from_parts(&m.source, &m.source_id) {
             return Some(s);
@@ -131,7 +126,6 @@ fn pick_source(
             return Some(Source::Tukui(t.clone()));
         }
     }
-    // The addon's own files can name an official source the catalogue doesn't.
     if let Some(w) = f.wago.as_ref().filter(|_| has_wago) {
         return Some(Source::Wago(w.clone()));
     }
@@ -141,26 +135,23 @@ fn pick_source(
     if let Some(repo) = f.website.as_deref().and_then(sources::parse_github_repo) {
         return Some(Source::Github(repo));
     }
-    // CurseForge is the last resort, but beats a Wago entry we have no key for.
     if let Some(c) = entry.and_then(|e| e.curse).or(f.curse) {
         return Some(Source::Curse(c));
     }
-    // Listed but user has no key: surface it so the UI can explain.
+    // Keyless Wago is still returned so the UI can ask for a key.
     entry.and_then(|e| e.wago.clone()).or_else(|| f.wago.clone()).map(Source::Wago)
 }
 
-/// Lowercase letters and digits only: "DBM - Deadly Boss Mods (DBM-Core)" -> "dbmdeadlybossmodsdbmcore".
+/// "DBM - Deadly Boss Mods" -> "dbmdeadlybossmods"
 fn squash(s: &str) -> String {
     s.chars().filter(|c| c.is_ascii_alphanumeric()).collect::<String>().to_ascii_lowercase()
 }
 
-/// Does the entry's name contain this folder's name (`!BugGrabber` in "BugGrabber")?
 fn named_after(e: &CatalogEntry, folder: &str) -> bool {
     let f = squash(folder);
     !f.is_empty() && squash(&e.name).contains(&f)
 }
 
-/// Group scanned folders into packages and attach sources.
 fn build_packages(st: &AppState, cat: &Catalog, folders: &[AddonFolder]) -> Vec<Package> {
     let mut by_folder: HashMap<String, &CatalogEntry> = HashMap::new();
     let mut by_wago: HashMap<&str, &CatalogEntry> = HashMap::new();
@@ -168,9 +159,7 @@ fn build_packages(st: &AppState, cat: &Catalog, folders: &[AddonFolder]) -> Vec<
     let mut by_wowi: HashMap<u64, &CatalogEntry> = HashMap::new();
     for e in &cat.addons {
         for f in &e.folders {
-            // Several entries can ship the same folder (a library, a module, a
-            // repack): the one named after it wins, then the smallest. Big
-            // bundles never win a folder by name alone.
+            // Shared folder: prefer the entry named after it, then the smallest.
             if e.folders.len() > 30 && !named_after(e, f) {
                 continue;
             }
@@ -192,7 +181,7 @@ fn build_packages(st: &AppState, cat: &Catalog, folders: &[AddonFolder]) -> Vec<
     }
     let has_wago = st.has_wago_key();
 
-    // Folders we installed ourselves are authoritative: they stay with their package.
+    // Installed folders stay with their recorded package.
     let mut managed_folder: HashMap<String, &str> = HashMap::new();
     for (key, rec) in &st.installed {
         for f in &rec.folders {
@@ -202,11 +191,9 @@ fn build_packages(st: &AppState, cat: &Catalog, folders: &[AddonFolder]) -> Vec<
     let on_disk: HashMap<String, &AddonFolder> =
         folders.iter().map(|f| (f.folder.to_ascii_lowercase(), f)).collect();
 
-    // First pass: direct keys (managed / catalogue / ids / standalone).
     let direct_key = |f: &AddonFolder| -> (String, Option<&CatalogEntry>) {
-        // The folder's own ids are exact; the folder name is a guess, and
-        // when the ids name something else only a close guess counts (an
-        // installed WeakAuras is not a repack that ships its folders).
+        // Ids are exact. With ids present, a name match must be named after
+        // the folder, so a repack shipping WeakAuras doesn't claim WeakAuras.
         let by_id = f
             .curse
             .and_then(|c| by_curse.get(&c).copied())
@@ -239,8 +226,8 @@ fn build_packages(st: &AppState, cat: &Catalog, folders: &[AddonFolder]) -> Vec<
         (key, cat_entry)
     };
 
-    // Does `f` look like a module of `parent` (e.g. BigWigs_Sporefall -> BigWigs,
-    // DBM-GUI -> DBM-Core)? Needs a declared dependency and a shared name prefix.
+    // Parent addon of a module (DBM-GUI -> DBM-Core): `part_of`, or a
+    // dependency sharing its name prefix.
     fn module_of<'a>(f: &AddonFolder, on_disk: &HashMap<String, &'a AddonFolder>) -> Option<&'a AddonFolder> {
         if let Some(p) = &f.part_of {
             if let Some(parent) = on_disk.get(&p.to_ascii_lowercase()) {
@@ -264,7 +251,7 @@ fn build_packages(st: &AppState, cat: &Catalog, folders: &[AddonFolder]) -> Vec<
         let (k, e) = direct_key(f);
         keyed.push((k, e, f));
     }
-    // Second pass: standalone folders that are modules of another addon inherit its key.
+    // Standalone modules inherit their parent's key.
     let key_of: HashMap<String, (String, Option<&CatalogEntry>)> = keyed
         .iter()
         .map(|(k, e, f)| (f.folder.to_ascii_lowercase(), (k.clone(), *e)))
@@ -288,7 +275,6 @@ fn build_packages(st: &AppState, cat: &Catalog, folders: &[AddonFolder]) -> Vec<
         }
     }
 
-    // key -> (entry, folders)
     let mut groups: Vec<(String, Option<&CatalogEntry>, Vec<&AddonFolder>)> = Vec::new();
     let mut index: HashMap<String, usize> = HashMap::new();
     for (key, entry, f) in keyed {
@@ -323,8 +309,7 @@ fn build_packages(st: &AppState, cat: &Catalog, folders: &[AddonFolder]) -> Vec<
             .map(|e| e.name.clone())
             .unwrap_or_else(|| primary.title.clone());
         let usable = |v: &Option<String>| v.clone().filter(|v| !v.is_empty() && !v.starts_with('@'));
-        // The version of the folder named after the addon (Questie, not the
-        // QuestieDB it depends on), else the main folder's, else any.
+        // Prefer the folder named after the addon (Questie, not QuestieDB).
         let main_folder = entry.and_then(|e| fs.iter().copied().find(|f| named_after(e, &f.folder))).unwrap_or(primary);
         let installed_version = managed
             .map(|m| m.version.clone())
@@ -339,7 +324,7 @@ fn build_packages(st: &AppState, cat: &Catalog, folders: &[AddonFolder]) -> Vec<
         let curse_id = entry.and_then(|e| e.curse).or_else(|| fs.iter().find_map(|f| f.curse));
         let supports_forever = fs.iter().any(|f| f.supports_forever());
 
-        // Required dependencies that are not on disk at all.
+        // Required dependencies not on disk.
         let mut missing: Vec<MissingDep> = Vec::new();
         for f in &fs {
             for d in &f.dependencies {
@@ -422,13 +407,12 @@ async fn stats_cached(app: &App) -> Stats {
     catalog_cached(app).await.stats
 }
 
-/// Does the catalogue vouch for a Forever build from `src`? Entries from
-/// instawow's list are tagged by CurseForge, so they vouch only for it.
+/// CurseForge-tagged catalogue entries vouch only for CurseForge builds.
 fn vouches(e: &CatalogEntry, src: &Source) -> bool {
     e.forever == Some(true) && (e.curse.is_none() || matches!(src, Source::Curse(_)))
 }
 
-/// Icon for one thing, via the run cache: `local:<install>|<texture>` or `url:<https>`.
+/// Keys: `local:<install>|<texture>` or `url:<https>`.
 async fn icon_cached(app: &App, cache_key: String, produce: impl std::future::Future<Output = Option<String>>) -> Option<String> {
     if let Some(v) = app.icon_cache.lock().await.get(&cache_key) {
         return v.clone();
@@ -446,7 +430,6 @@ fn entry_hint(cat: &Catalog, pkg: &Package) -> (Option<String>, Option<bool>) {
     (entry.and_then(|e| e.asset_hint.clone()), entry.and_then(|e| e.forever))
 }
 
-/// Is the package on disk this release?
 fn is_current(pkg: &Package, version: &str) -> bool {
     pkg.installed_version
         .as_deref()
@@ -469,7 +452,6 @@ async fn resolve_into(app: &App, pkg: &mut Package, cat: &Catalog) {
         prerelease: st.allow_prerelease,
     };
     let mut res = sources::resolve(&app.client, &src, opts.clone()).await;
-    // No Forever build on GitHub: CurseForge may have one.
     if let (Ok(r), Source::Github(_), Some(c)) = (&res, &src, pkg.curse_id) {
         if r.forever == Some(false) {
             src = Source::Curse(c);
@@ -481,8 +463,7 @@ async fn resolve_into(app: &App, pkg: &mut Package, cat: &Catalog) {
     let vouched = entry.map(|e| vouches(e, &src)).unwrap_or(false);
     match res {
         Ok(mut r) => {
-            // Some authors list 16001 in the TOC but never added "forever" to
-            // release.json. If the catalogue vouches for it, don't scare people.
+            // release.json often omits "forever" even when the TOC supports it.
             if r.forever == Some(false) && vouched {
                 r.forever = None;
             }
@@ -545,9 +526,9 @@ struct Settings {
     catalog_count: usize,
     wago_key_url: String,
     repo_url: String,
-    /// `ADDONFORGE_TAB=browse|settings` opens on that tab (screenshots, testing).
+    /// From `ADDONFORGE_TAB`.
     start_tab: Option<String>,
-    /// Android release name (`2026.10.14`); None for local builds.
+    /// None for local builds.
     release: Option<String>,
 }
 
@@ -576,11 +557,7 @@ async fn get_settings(app: State<'_, Shared>) -> Result<Settings, String> {
     })
 }
 
-/// Pick a Forever install to adopt automatically. Returns the path to switch to
-/// when the recorded selection is missing or no longer a Forever install (e.g. a
-/// leftover `_classic_beta_` selection after the live client shipped) and a
-/// Forever install is available; `None` when the current selection is already
-/// Forever or nothing Forever was found.
+/// The Forever install to switch to when the current selection isn't one.
 fn install_to_adopt(current_is_forever: bool, found: &[WowInstall]) -> Option<String> {
     if current_is_forever {
         return None;
@@ -682,7 +659,6 @@ async fn scan_packages(app: &App) -> Result<Vec<Package>, String> {
     Ok(pkgs)
 }
 
-/// The package with this key on disk now, if any.
 async fn on_disk(app: &App, key: &str) -> Option<Package> {
     scan_packages(app).await.ok()?.into_iter().find(|p| p.key == key)
 }
@@ -702,8 +678,7 @@ async fn check_updates(app: State<'_, Shared>) -> Result<Vec<Package>, String> {
     Ok(pkgs)
 }
 
-/// `prev` is the package on disk now, if any: when the new release is a
-/// different version, the folders it replaces are kept for Roll back.
+/// When `prev` is a different version, its folders are kept for Roll back.
 async fn install_from(
     app: &App,
     key: &str,
@@ -760,8 +735,7 @@ async fn install_from(
         folders,
         installed_at: state::now_secs(),
     };
-    // From CurseForge, but its TOC names a GitHub repo with a Forever build:
-    // future updates come from GitHub, the official way.
+    // Switch to GitHub when the TOC names a repo with a Forever build.
     if matches!(src, Source::Curse(_)) {
         if let Some(repo) = github_from_toc(&install, &rec.folders).await {
             let opts = ResolveOpts { asset_hint: None, wago_key: None, prerelease: st.allow_prerelease };
@@ -782,7 +756,7 @@ async fn install_from(
     Ok(rec)
 }
 
-/// A GitHub repo named by the TOCs (X-Website) of these installed folders.
+/// GitHub repo from the folders' TOC `X-Website`.
 async fn github_from_toc(install: &str, folders: &[String]) -> Option<String> {
     let install = install.to_string();
     let names: Vec<String> = folders.iter().map(|f| f.to_ascii_lowercase()).collect();
@@ -793,7 +767,7 @@ async fn github_from_toc(install: &str, folders: &[String]) -> Option<String> {
         .find_map(|f| f.website.as_deref().and_then(sources::parse_github_repo))
 }
 
-/// Install, and when GitHub has no Forever build fall back to CurseForge.
+/// Falls back to CurseForge when GitHub has no Forever build.
 async fn install_or_curse(
     app: &App,
     key: &str,
@@ -886,7 +860,6 @@ async fn catalog_list(app: State<'_, Shared>, refresh: Option<bool>) -> Result<V
         .collect())
 }
 
-/// Icons for installed packages: the addon's own icon file, else none.
 #[tauri::command]
 async fn package_icons(app: State<'_, Shared>, keys: Vec<String>) -> Result<HashMap<String, String>, String> {
     let install = current_install(&app).await?;
@@ -908,9 +881,7 @@ async fn package_icons(app: State<'_, Shared>, keys: Vec<String>) -> Result<Hash
     Ok(out)
 }
 
-/// Longer description + preview image for the details window: the README
-/// excerpt and first screenshot for GitHub, cfwidget's summary and
-/// thumbnail for CurseForge, nothing for other sources.
+/// Description and preview image; GitHub and CurseForge only.
 #[tauri::command]
 async fn addon_details(app: State<'_, Shared>, id: String) -> Result<icons::Details, String> {
     let cat = catalog_cached(&app).await;
@@ -948,7 +919,6 @@ async fn install_catalog(
     refreshed(&app, &key).await
 }
 
-/// Install straight from a source the user typed or imported.
 #[tauri::command]
 async fn install_source(
     app: State<'_, Shared>,
@@ -970,7 +940,7 @@ async fn install_github(
 ) -> Result<Package, String> {
     let repo = sources::parse_github_repo(&repo)
         .ok_or_else(|| "Enter a GitHub repo as owner/name or paste its URL".to_string())?;
-    // If the catalogue already knows this repo, use its key so it groups properly.
+    // Reuse the catalogue key so the package groups correctly.
     let cat = catalog_cached(&app).await;
     let key = cat
         .addons
@@ -1011,8 +981,7 @@ async fn remove_package(app: State<'_, Shared>, key: String) -> Result<Vec<Strin
     Ok(gone)
 }
 
-/// Roll back: put the version the last update replaced back, keeping the
-/// replaced one so a second restore undoes it. Rescans without a check.
+/// Swaps in the backup and keeps the current version, so a second call undoes it.
 #[tauri::command]
 async fn restore_backup(app: State<'_, Shared>, key: String) -> Result<Package, String> {
     let addons = addons_dir(&current_install(&app).await?);
@@ -1038,8 +1007,7 @@ async fn restore_backup(app: State<'_, Shared>, key: String) -> Result<Package, 
     on_disk(&app, &key).await.ok_or_else(|| "Restored, but its folders didn't show up on rescan".to_string())
 }
 
-/// What changed in the releases newer than the installed one, from the
-/// addon's source. Empty when the source has no notes (CurseForge).
+/// Notes for releases newer than the installed one; empty for CurseForge.
 #[tauri::command]
 async fn release_notes(app: State<'_, Shared>, key: String) -> Result<Vec<sources::Note>, String> {
     let pkg = on_disk(&app, &key).await.ok_or_else(|| "Addon not found".to_string())?;
@@ -1166,8 +1134,6 @@ async fn skip_self_update(app: State<'_, Shared>, tag: String) -> Result<(), Str
     st.save().map_err(err)
 }
 
-/// First launch of a newer build: return that build's release notes once.
-/// Never on a fresh install (nothing to compare with), never for dev builds.
 #[derive(Serialize)]
 struct WhatsNew {
     version: String,
@@ -1175,6 +1141,8 @@ struct WhatsNew {
     notes: String,
 }
 
+/// Release notes once, on the first launch of a newer build. Skipped on fresh
+/// installs and dev builds.
 #[tauri::command]
 async fn whats_new(app: State<'_, Shared>) -> Result<Option<WhatsNew>, String> {
     let current = selfupdate::build();
@@ -1188,9 +1156,7 @@ async fn whats_new(app: State<'_, Shared>) -> Result<Option<WhatsNew>, String> {
     if last == current {
         return Ok(None);
     }
-    // Existing user if: we recorded a previous build, or they already have
-    // addons managed by AddonForge (people on builds before this field
-    // existed). Otherwise fresh install.
+    // Managed addons also mark an existing user when no build was recorded.
     let existing = last != 0 || has_history;
     let mut result = None;
     if existing {
@@ -1256,10 +1222,6 @@ fn make_app() -> Shared {
         .build()
         .expect("http client");
     let mut st = AppState::load();
-    // Migrate a leftover beta (or stale) selection to the live Forever client on
-    // startup, so an upgrading beta user isn't left managing an unsupported
-    // folder. Only scan storage when the current selection isn't already
-    // Forever, keeping the common case a no-op.
     let current_is_forever = st
         .install_path
         .as_deref()
@@ -1355,11 +1317,8 @@ mod tests {
         let live = install("/g/_forever_", "forever");
         let beta = install("/g/_classic_beta_", "other");
         let found = vec![beta.clone(), live.clone()];
-        // No selection yet, or a leftover beta selection: adopt the live client.
         assert_eq!(install_to_adopt(false, &found).as_deref(), Some("/g/_forever_"));
-        // Already on a Forever install: leave it alone.
         assert_eq!(install_to_adopt(true, &found), None);
-        // Nothing Forever around (only the dropped beta): nothing to adopt.
         assert_eq!(install_to_adopt(false, &[beta]), None);
     }
 
@@ -1462,12 +1421,10 @@ mod tests {
         assert_eq!(by_name(&pkgs, "Both").source, Some(Source::Github("a/b".into())));
         assert_eq!(by_name(&pkgs, "I").source, Some(Source::Wowi(5)));
         assert_eq!(by_name(&pkgs, "T").source, Some(Source::Tukui("elvui".into())));
-        // No Wago key: CurseForge beats the Wago entry. With a key, Wago wins.
         assert_eq!(by_name(&pkgs, "W").source, Some(Source::Curse(2)));
         st.wago_key = Some("k".into());
         assert_eq!(by_name(&build_packages(&st, &cat, &folders), "W").source, Some(Source::Wago("xyz".into())));
 
-        // Installed from CurseForge: stays on CurseForge.
         st.installed.insert(
             "cat:both".into(),
             Installed { source: "curse".into(), source_id: "1".into(), version: "1".into(), folders: vec!["Both".into()], installed_at: 0 },

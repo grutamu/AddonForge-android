@@ -1,11 +1,3 @@
-//! The addon catalogue: built from instawow's daily catalogue
-//! (github.com/layday/instawow-data), filtered to what CurseForge tags as
-//! Forever.
-//!
-//! It is a *pointer list*, not a host: every entry says where the author
-//! publishes releases. Downloads always come straight from that source.
-//! The converted list is cached beside state.json and refreshed once a day.
-
 use crate::state::AppState;
 use serde::{Deserialize, Serialize};
 use std::collections::{HashMap, HashSet};
@@ -22,40 +14,32 @@ pub struct CatalogEntry {
     pub desc: String,
     #[serde(default)]
     pub category: String,
-    /// `owner/repo` on GitHub. Releases are read from
-    /// `https://github.com/<owner>/<repo>/releases/latest/download/release.json`.
+    /// `owner/repo`
     #[serde(default)]
     pub github: Option<String>,
-    /// Wago Addons project id (needs the user's own free API key).
+    /// Usable only with the user's Wago API key.
     #[serde(default)]
     pub wago: Option<String>,
-    /// WoWInterface file id.
     #[serde(default)]
     pub wowi: Option<u64>,
-    /// TukUI slug (elvui / tukui).
+    /// elvui | tukui
     #[serde(default)]
     pub tukui: Option<String>,
-    /// CurseForge project id.
     #[serde(default)]
     pub curse: Option<u64>,
-    /// Substring to pick the right zip when a GitHub release has several
-    /// and no release.json.
+    /// Picks the zip when a GitHub release has several and no release.json.
     #[serde(default)]
     pub asset_hint: Option<String>,
-    /// Top-level AddOns folders the release installs (used to match what's
-    /// already on disk to this entry).
     #[serde(default)]
     pub folders: Vec<String>,
     #[serde(default)]
     pub url: Option<String>,
-    /// Does the author publish a Forever build?  true / false / null=unknown.
+    /// None = unknown.
     #[serde(default)]
     pub forever: Option<bool>,
-    /// A short line shown on the installed row, e.g. "beta workaround, remove
-    /// once Blizzard fixes X". Changing it is a catalogue edit, no release needed.
     #[serde(default)]
     pub notice: Option<String>,
-    /// Date the entry was added (YYYY-MM-DD). Feeds "New in the catalogue".
+    /// YYYY-MM-DD
     #[serde(default)]
     pub added: Option<String>,
 }
@@ -68,19 +52,18 @@ pub struct Catalog {
     pub updated: String,
     #[serde(default)]
     pub addons: Vec<CatalogEntry>,
-    /// Downloads and last update per entry id, from the same source.
+    /// By entry id.
     #[serde(default)]
     pub stats: Stats,
 }
 
-/// Popularity per catalogue entry: download totals and last-release dates.
 #[derive(Serialize, Deserialize, Clone, Debug, Default)]
 pub struct StatEntry {
     #[serde(default)]
     pub downloads: Option<u64>,
     #[serde(default)]
     pub updated_at: Option<String>,
-    /// "curse" | "github" | "wowi": what the number counts.
+    /// Where the download count comes from: curse | github | wowi
     #[serde(default)]
     pub source: String,
 }
@@ -106,7 +89,6 @@ struct IwEntry {
     name: String,
     #[serde(default)]
     url: String,
-    /// One folder list per recent file.
     #[serde(default)]
     folders: Vec<Vec<String>>,
     #[serde(default)]
@@ -125,14 +107,13 @@ struct IwRef {
     id: String,
 }
 
-/// instawow's catalogue -> ours: every CurseForge entry tagged Forever, with
-/// the GitHub repo that names it in `same_as` when exactly one does (the
-/// repo is then the preferred, official source).
+/// CurseForge entries tagged Forever, plus the GitHub repo when exactly one
+/// names the entry in `same_as`.
 fn convert(iw: IwCatalogue) -> Catalog {
     let mut github_for: HashMap<&str, Vec<&str>> = HashMap::new();
     for e in iw.entries.iter().filter(|e| e.source == "github") {
         for s in e.same_as.iter().filter(|s| s.source == "curse") {
-            // Case-correct owner/repo from the URL, the slug is lowercased.
+            // The slug is lowercased; the URL keeps the repo's case.
             let repo = e.url.strip_prefix("https://github.com/").unwrap_or(&e.slug);
             github_for.entry(s.id.as_str()).or_default().push(repo);
         }
@@ -143,7 +124,6 @@ fn convert(iw: IwCatalogue) -> Catalog {
         .iter()
         .filter(|e| e.source == "curse" && e.game_flavours.iter().any(|f| f == "forever_classic"))
         .collect();
-    // Most downloaded first: the order Find addons starts in.
     forever.sort_by(|a, b| b.download_count.cmp(&a.download_count));
     for e in forever {
         let Ok(curse) = e.id.parse::<u64>() else { continue };
@@ -184,7 +164,6 @@ fn read_cache() -> Option<(Catalog, bool)> {
 }
 
 async fn fetch(client: &reqwest::Client) -> anyhow::Result<Catalog> {
-    // About 4 MB for every flavour; filtered down to Forever right away.
     let bytes = client.get(REMOTE_URL).timeout(Duration::from_secs(60)).send().await?.error_for_status()?.bytes().await?;
     let cat = tokio::task::spawn_blocking(move || serde_json::from_slice::<IwCatalogue>(&bytes).map(convert)).await??;
     if cat.addons.is_empty() {
@@ -197,8 +176,7 @@ async fn fetch(client: &reqwest::Client) -> anyhow::Result<Catalog> {
     Ok(cat)
 }
 
-/// Today's cached copy, else a fresh download, else an older cached copy;
-/// with no copy at all, an empty catalogue.
+/// Today's cache, else a download, else a stale cache, else empty.
 pub async fn load(client: &reqwest::Client, refresh: bool) -> (Catalog, &'static str) {
     let cached = read_cache();
     if let Some((c, true)) = &cached {

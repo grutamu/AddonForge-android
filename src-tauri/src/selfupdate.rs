@@ -1,10 +1,3 @@
-//! Update check.
-//!
-//! Releases are signed APKs on the fork's GitHub releases, tagged by date
-//! (`android-2026.10.14`). We read the latest release and, when it is newer
-//! than this build, the UI shows a banner linking to the release page.
-//! Android installs the APK itself: there is no in-app installer.
-
 use serde::{Deserialize, Serialize};
 
 pub const ANDROID_RELEASES_API: &str = "https://api.github.com/repos/grutamu/AddonForge-android/releases/latest";
@@ -13,8 +6,7 @@ pub fn version() -> &'static str {
     env!("CARGO_PKG_VERSION")
 }
 
-/// The release's versionCode, baked in by the release workflow
-/// (`ADDONFORGE_BUILD`); 0 for local builds.
+/// 0 for local builds.
 pub fn build() -> u32 {
     option_env!("ADDONFORGE_BUILD").and_then(|s| s.parse().ok()).unwrap_or(0)
 }
@@ -43,8 +35,6 @@ pub struct SelfUpdate {
     pub error: Option<String>,
 }
 
-/// `url_override` (`ADDONFORGE_UPDATE_URL`) replaces the releases API URL, so
-/// the banner can be tried against a local JSON file.
 pub async fn check(client: &reqwest::Client, url_override: Option<&str>) -> SelfUpdate {
     let mut out = SelfUpdate {
         current_version: version().into(),
@@ -81,8 +71,7 @@ struct GhAsset {
     name: String,
 }
 
-/// Latest release with an `.apk` asset, and whether it is newer than this
-/// build. `url` is the release PAGE: Android installs APKs itself.
+/// `url` is the release page, not the APK.
 async fn android_latest(client: &reqwest::Client, api: &str) -> anyhow::Result<Option<(Latest, bool)>> {
     let r: GhRelease = client
         .get(api)
@@ -95,7 +84,6 @@ async fn android_latest(client: &reqwest::Client, api: &str) -> anyhow::Result<O
     let Some(apk) = r.assets.iter().find(|a| a.name.to_ascii_lowercase().ends_with(".apk")) else {
         return Ok(None);
     };
-    // Older v0.3.0-bN style tags aren't dated releases: never "newer".
     let Some((name, code)) = r.tag_name.strip_prefix("android-").and_then(|n| Some((n, release_code(n)?))) else {
         return Ok(None);
     };
@@ -104,15 +92,12 @@ async fn android_latest(client: &reqwest::Client, api: &str) -> anyhow::Result<O
     Ok(Some((l, newer)))
 }
 
-/// Android release name baked in by the release workflow (`ADDONFORGE_RELEASE`):
-/// the release date, `2026.10.14`, or `2026.10.14-2` for a second one that
-/// day. None for local builds, which never show the update banner.
+/// None for local builds.
 pub fn release() -> Option<&'static str> {
     option_env!("ADDONFORGE_RELEASE").filter(|s| !s.is_empty())
 }
 
-/// `2026.10.14` → 2026101401, `2026.10.14-2` → 2026101402: always increasing,
-/// and the APK's versionCode.
+/// `2026.10.14-2` → 2026101402. Must match android-release.yml.
 pub fn release_code(name: &str) -> Option<u32> {
     let (date, n) = match name.split_once('-') {
         Some((d, n)) => (d, n.parse::<u32>().ok()?),

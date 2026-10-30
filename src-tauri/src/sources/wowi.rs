@@ -1,5 +1,3 @@
-//! WoWInterface (wowinterface.com) public JSON API. No key needed.
-
 use super::{Note, Remote};
 use serde::Deserialize;
 
@@ -13,7 +11,7 @@ struct FileDetails {
     file_name: String,
     #[serde(default, rename = "UICompatibility")]
     compat: Option<Vec<Compat>>,
-    /// Every version's notes, newest first (BBCode).
+    /// BBCode
     #[serde(default, rename = "UIChangeLog")]
     changelog: String,
 }
@@ -59,7 +57,6 @@ pub async fn resolve(client: &reqwest::Client, id: u64) -> anyhow::Result<Remote
     })
 }
 
-/// The addon's changelog: every version, newest first.
 pub async fn notes(client: &reqwest::Client, id: u64) -> anyhow::Result<Vec<Note>> {
     let d = details(client, id).await?;
     Ok(vec![Note { version: d.version, text: d.changelog }])

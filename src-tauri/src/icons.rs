@@ -1,15 +1,3 @@
-//! Addon icons: only the addon's own `## IconTexture` file on disk
-//! (TGA / BLP / PNG), the image the game itself shows. Everything else gets
-//! a lettered tile in the UI. Nothing is fetched to make an icon: guessed
-//! icons (author avatars, files picked out of repos) were too often wrong,
-//! and no icon beats a wrong one (owner, 2026-10-15).
-//!
-//! Icons the game keeps inside its own data files (`Interface\Icons\...`)
-//! are not readable from disk.
-//!
-//! Cached in `icons/` beside the state file as 32px PNGs and handed to the
-//! UI as data URLs.
-
 use base64::Engine;
 use image::imageops::FilterType;
 use std::collections::hash_map::DefaultHasher;
@@ -34,8 +22,7 @@ fn to_data_url(png: &[u8]) -> String {
     format!("data:image/png;base64,{}", base64::engine::general_purpose::STANDARD.encode(png))
 }
 
-/// Square 32px PNG. A strip (Plater's cast bar) cropped to a square is
-/// unrecognisable: anything over 2:1 is refused and gets the lettered tile.
+/// Square 32px PNG; refuses images wider than 2:1.
 fn encode_png(img: image::DynamicImage) -> anyhow::Result<Vec<u8>> {
     let (w, h) = (img.width().max(1), img.height().max(1));
     if w > 2 * h || h > 2 * w {
@@ -55,7 +42,7 @@ fn decode_file(path: &Path) -> anyhow::Result<image::DynamicImage> {
     if ext == "blp" {
         let blp = image_blp::parser::load_blp(path).map_err(|e| anyhow::anyhow!("blp: {e:?}"))?;
         let old = image_blp::convert::blp_to_image(&blp, 0).map_err(|e| anyhow::anyhow!("blp convert: {e:?}"))?;
-        // image-blp uses an older `image` crate; hand the pixels over by value.
+        // image-blp uses an older `image` crate.
         let rgba = old.to_rgba8();
         let (w, h) = rgba.dimensions();
         let ours = image::RgbaImage::from_raw(w, h, rgba.into_raw()).ok_or_else(|| anyhow::anyhow!("blp: bad buffer"))?;
@@ -64,7 +51,6 @@ fn decode_file(path: &Path) -> anyhow::Result<image::DynamicImage> {
     Ok(image::open(path)?)
 }
 
-/// Resolve `## IconTexture` to a file inside the install, if it points at one.
 pub fn resolve_texture(install: &Path, texture: &str) -> Option<PathBuf> {
     let t = texture.trim().replace('/', "\\");
     let lower = t.to_ascii_lowercase();
@@ -84,7 +70,7 @@ pub fn resolve_texture(install: &Path, texture: &str) -> Option<PathBuf> {
     None
 }
 
-/// Icon from the addon's own files. Cached by path + mtime.
+/// Cached by path + mtime.
 pub fn local_icon(install: &Path, texture: &str) -> Option<String> {
     let path = resolve_texture(install, texture)?;
     let mtime = fs::metadata(&path).ok()?.modified().ok()?;
@@ -100,13 +86,12 @@ pub fn local_icon(install: &Path, texture: &str) -> Option<String> {
     Some(to_data_url(&png))
 }
 
-// ---------------------------------------------------------------- addon details (README excerpt + first image)
+// ---------------------------------------------------------------- addon details
 
 const PREVIEW_W: u32 = 720;
 const README_TTL: Duration = Duration::from_secs(24 * 3600);
 
-/// Hosts an image may come from for the preview. The app promises to talk
-/// only to the addon sites, so anything else in a README is ignored.
+/// The app only talks to addon sites.
 fn allowed_image_host(url: &str) -> bool {
     let rest = match url.strip_prefix("https://") {
         Some(r) => r,
@@ -122,8 +107,7 @@ fn allowed_image_host(url: &str) -> bool {
         || host == "cdn-wow.mmoui.com"
 }
 
-/// First image reference in a README: `![alt](url)` or `<img src="url">`.
-/// Relative paths are resolved against the repo's raw HEAD.
+/// Relative paths resolve against the repo's raw HEAD.
 fn first_readme_image(md: &str, repo: &str) -> Option<String> {
     let mut candidates: Vec<(usize, String)> = Vec::new();
     let mut i = 0;
@@ -154,7 +138,7 @@ fn first_readme_image(md: &str, repo: &str) -> Option<String> {
     candidates.sort_by_key(|c| c.0);
     for (_, mut url) in candidates {
         let l = url.to_ascii_lowercase();
-        // badges are the usual first image; skip the obvious ones
+        // skip badges
         if l.contains("shields.io") || l.contains("badge") || l.ends_with(".svg") {
             continue;
         }
@@ -174,7 +158,6 @@ fn first_readme_image(md: &str, repo: &str) -> Option<String> {
     None
 }
 
-/// Attribute value from an html tag body (`src="..."` or `src='...'`).
 fn attr(tag: &str, name: &str) -> Option<String> {
     let lower = tag.to_ascii_lowercase();
     let mut from = 0;
@@ -196,9 +179,7 @@ fn attr(tag: &str, name: &str) -> Option<String> {
     None
 }
 
-/// First real picture in GitHub's rendered README (images come back
-/// through camo.githubusercontent.com, so nothing off-GitHub is fetched).
-/// Badges, logos and widgets are skipped.
+/// Images here are proxied through camo.githubusercontent.com.
 fn first_html_image(html: &str) -> Option<String> {
     let lower = html.to_ascii_lowercase();
     let mut i = 0;
@@ -221,8 +202,6 @@ fn first_html_image(html: &str) -> Option<String> {
     None
 }
 
-/// Plain-text excerpt of a README: badges, headings and html dropped,
-/// links reduced to their text, first ~700 chars of prose.
 fn readme_excerpt(md: &str) -> String {
     let mut out = String::new();
     let mut in_code = false;
@@ -283,7 +262,7 @@ struct CachedDetails {
     image_url: Option<String>,
 }
 
-/// README summary and one preview image for a GitHub repo. Cached a day.
+/// Cached a day.
 pub async fn github_details(client: &reqwest::Client, repo: &str) -> Details {
     let cache = cache_dir().join(format!("{}.json", key(&format!("readme2|{repo}"))));
     if let Ok(meta) = fs::metadata(&cache) {
@@ -308,8 +287,7 @@ pub async fn github_details(client: &reqwest::Client, repo: &str) -> Details {
     }
     let Some(md) = md else { return Details::default() };
     let summary = Some(readme_excerpt(&md)).filter(|s| !s.is_empty());
-    // Picture: GitHub's rendered README first (its proxy serves the
-    // author's off-site images from a GitHub host), raw markdown as fallback.
+    // Rendered README first, since GitHub proxies off-site images.
     let mut image_url = None;
     if let Ok(r) = client
         .get(format!("https://api.github.com/repos/{repo}/readme"))
@@ -337,8 +315,7 @@ pub async fn github_details(client: &reqwest::Client, repo: &str) -> Details {
     Details { summary, image }
 }
 
-/// Summary and thumbnail for a CurseForge project (through cfwidget).
-/// Cached a day.
+/// Via cfwidget. Cached a day.
 pub async fn curse_details(client: &reqwest::Client, id: u64) -> Details {
     let cache = cache_dir().join(format!("{}.json", key(&format!("curse|{id}"))));
     if let Ok(meta) = fs::metadata(&cache) {
@@ -371,7 +348,6 @@ fn preview_cached(url: &str) -> Option<String> {
     Some(format!("data:image/jpeg;base64,{}", base64::engine::general_purpose::STANDARD.encode(bytes)))
 }
 
-/// Fetch and shrink a preview image (jpeg, <= 720px wide). 8 MB cap.
 pub async fn preview_image(client: &reqwest::Client, url: &str) -> Option<String> {
     if !allowed_image_host(url) {
         return None;

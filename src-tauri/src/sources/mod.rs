@@ -1,7 +1,3 @@
-//! Addon sources. Each resolves "what is the latest release and where is
-//! the zip" for one addon. The app talks to these sites directly over
-//! HTTPS; nothing goes through a Pocket Forge server.
-
 pub mod curseforge;
 pub mod github;
 pub mod tukui;
@@ -17,7 +13,6 @@ pub enum Source {
     Wago(String),
     Wowi(u64),
     Tukui(String),
-    /// CurseForge project id.
     Curse(u64),
 }
 
@@ -58,7 +53,6 @@ impl Source {
             Source::Curse(i) => format!("https://www.curseforge.com/projects/{i}"),
         }
     }
-    /// Rebuild from the strings stored in state.json.
     pub fn from_parts(kind: &str, id: &str) -> Option<Source> {
         match kind {
             "github" => Some(Source::Github(id.to_string())),
@@ -71,20 +65,16 @@ impl Source {
     }
 }
 
-/// The latest release as the source reports it.
 #[derive(Serialize, Clone, Debug)]
 pub struct Remote {
     pub version: String,
     pub download_url: String,
     pub filename: String,
-    /// Some(true) = source says this build supports Forever,
-    /// Some(false) = it says it doesn't, None = the source can't tell us.
+    /// None when the source doesn't say.
     pub forever: Option<bool>,
-    /// True when this came from a pre-release / beta channel.
     pub prerelease: bool,
 }
 
-/// Options that can influence resolution.
 #[derive(Default, Clone, Debug)]
 pub struct ResolveOpts<'a> {
     pub asset_hint: Option<&'a str>,
@@ -106,21 +96,15 @@ pub async fn resolve(
     }
 }
 
-/// One release's notes. The sources hand back their raw text (Markdown,
-/// BBCode, HTML); `release_notes` turns it into plain text.
 #[derive(Serialize, Clone, Debug, PartialEq)]
 pub struct Note {
     pub version: String,
     pub text: String,
 }
 
-/// Longest text shown for one release; the addon's page has the rest.
 const NOTE_MAX: usize = 2500;
 
-/// What changed since `installed`, newest first. GitHub gives one note per
-/// newer release; WoWInterface and TukUI keep one changelog for every
-/// version, cut where the installed version's entry starts. CurseForge
-/// (through cfwidget) has none.
+/// Newest first. Single-changelog sources are cut at the installed version.
 pub async fn release_notes(
     client: &reqwest::Client,
     src: &Source,
@@ -145,8 +129,7 @@ pub async fn release_notes(
         .collect())
 }
 
-/// A changelog that lists every version, newest first, up to the line that
-/// names the installed version (its own entry and everything older).
+/// The changelog above the line naming `installed`.
 pub fn since(text: &str, installed: Option<&str>) -> String {
     let Some(v) = installed.filter(|v| !normalize_version(v).is_empty()) else { return text.to_string() };
     let lines: Vec<&str> = text.lines().collect();
@@ -158,7 +141,6 @@ pub fn since(text: &str, installed: Option<&str>) -> String {
     }
 }
 
-/// At most `max` characters, cut at a line end, with "…" when cut.
 fn clip(text: &str, max: usize) -> String {
     if text.chars().count() <= max {
         return text.to_string();
@@ -168,9 +150,7 @@ fn clip(text: &str, max: usize) -> String {
     format!("{}\n…", text[..cut].trim_end())
 }
 
-/// Release notes as plain text: BBCode and HTML tags dropped (list items
-/// become bullets), Markdown headings, emphasis and links reduced to their
-/// text, entities decoded, blank runs collapsed.
+/// Markdown, BBCode or HTML to plain text.
 pub fn plain_notes(raw: &str) -> String {
     let s = raw.replace("\r\n", "\n").replace('\r', "\n");
     let s = strip_tags(&s, '[', ']', |name, closing| match name {
@@ -180,7 +160,6 @@ pub fn plain_notes(raw: &str) -> String {
         "img" | "youtube" => Some("\u{1}"),
         _ => None,
     });
-    // [img]…[/img]: the URL between the markers is no use as text.
     let s = drop_marked(&s);
     let s = strip_tags(&s, '<', '>', |name, closing| match name {
         "br" | "p" | "div" | "ul" | "ol" | "tr" | "h1" | "h2" | "h3" | "h4" | "h5" | "h6" | "pre" | "details" | "summary" => Some("\n"),
@@ -214,8 +193,7 @@ pub fn plain_notes(raw: &str) -> String {
     out.join("\n").trim().to_string()
 }
 
-/// Remove `open…close` tags whose name `keep` knows, replacing each with
-/// what it returns; anything else (`[ October 2026 ]`, `a < b`) stays.
+/// Replaces tags `keep` recognises; other brackets (`a < b`) stay.
 fn strip_tags(s: &str, open: char, close: char, keep: impl Fn(&str, bool) -> Option<&'static str>) -> String {
     let mut out = String::with_capacity(s.len());
     let mut rest = s;
@@ -245,12 +223,10 @@ fn strip_tags(s: &str, open: char, close: char, keep: impl Fn(&str, bool) -> Opt
     out
 }
 
-/// Drop the text between pairs of \u{1} markers (and the markers).
 fn drop_marked(s: &str) -> String {
     s.split('\u{1}').step_by(2).collect()
 }
 
-/// `**bold**`, `__bold__`, `` `code` `` and `[text](url)` to their text; images dropped.
 fn md_inline(s: &str) -> String {
     let s = s.replace("**", "").replace("__", "").replace('`', "");
     let mut out = String::with_capacity(s.len());
@@ -280,13 +256,12 @@ fn md_inline(s: &str) -> String {
     out
 }
 
-/// "v1.2.3" == "1.2.3" for update checks. Some packaged TOCs say "#1.2.3".
+/// "v1.2.3" and "#1.2.3" -> "1.2.3"
 pub fn normalize_version(v: &str) -> String {
     v.trim().trim_start_matches(['v', 'V', '#']).trim().to_ascii_lowercase()
 }
 
-/// Does the release name contain each of these versions as a whole version
-/// (`12.1.0` in `Questie-v12.1.0+v1.0.6`, but `1.2` not in `1.2.3`)?
+/// Whole-version matches only: `1.2` isn't in `1.2.3`.
 pub fn names_every_version(remote: &str, versions: &[String]) -> bool {
     let remote = remote.to_ascii_lowercase();
     let whole = |v: &str| {
@@ -302,7 +277,6 @@ pub fn names_every_version(remote: &str, versions: &[String]) -> bool {
     !versions.is_empty() && versions.iter().all(|v| whole(v))
 }
 
-/// Turn "https://github.com/owner/repo/..." or "owner/repo" into "owner/repo".
 pub fn parse_github_repo(input: &str) -> Option<String> {
     let s = input.trim().trim_end_matches('/');
     let s = s
