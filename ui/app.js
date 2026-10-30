@@ -309,6 +309,10 @@ $("installed-list").addEventListener("click", async (e) => {
 async function packageAction(act, p, btn, undoing = false) {
   const key = p.key;
   if (act === "update") await updateOne(p);
+  if (act === "switch") {
+    const other = otherSource(p);
+    if (other) await installFrom(other.source, key, p.name, other.name);
+  }
   if (act === "dep") {
     const entry = catalog.find((c) => c.id === btn.dataset.id) || { id: btn.dataset.id, name: btn.dataset.id };
     await installCatalog(entry, false);
@@ -619,10 +623,10 @@ let detailPackageKey = null;
 let listScroll = 0; // restored when the details close
 // Mirrors pick_source in lib.rs.
 function catalogInstallable(e) {
-  return e.github || e.wowi || e.tukui || (e.wago && settings?.has_wago_key) || e.curse;
+  return e.curse || e.github || e.wowi || e.tukui || (e.wago && settings?.has_wago_key);
 }
 function sourceLabel(e) {
-  return e.github ? `GitHub \u00b7 ${e.github}` : e.wago ? "Wago" : e.wowi ? "WoWInterface" : e.tukui ? "TukUI" : "CurseForge";
+  return e.curse ? "CurseForge" : e.github ? `GitHub \u00b7 ${e.github}` : e.wago ? "Wago" : e.wowi ? "WoWInterface" : "TukUI";
 }
 function entryUrl(e) {
   return e.url || (e.github ? "https://github.com/" + e.github : e.wago ? "https://addons.wago.io/addons/" + e.wago : e.wowi ? "https://www.wowinterface.com/downloads/info" + e.wowi : e.curse ? "https://www.curseforge.com/wow/addons/search?search=" + encodeURIComponent(e.name) : "");
@@ -655,12 +659,13 @@ async function openDetail(id, installedPackage = null) {
     (e.installed ? ' \u00b7 <span class="badge ok">installed</span>' : "");
   $("detail-desc").textContent = e.desc || "";
   const localInfo = installedPackage ? `<div class="muted">Folders: ${installedPackage.folders.map(esc).join(", ")}</div>` : "";
-  const more = e.github ? "Reading its README" : e.curse ? "Reading its CurseForge page" : "";
+  const more = e.curse ? "Reading its CurseForge page" : e.github ? "Reading its README" : "";
   $("detail-body").innerHTML = localInfo + (more ? `<div class="muted"><span class="spinner"></span> ${more}\u2026</div>` : "");
   const canInstall = catalogInstallable(e);
   const needsKey = e.wago && !canInstall;
   $("detail-install").textContent = e.installed ? "Reinstall" : "Install";
   $("detail-install").classList.toggle("hidden", !canInstall);
+  $("detail-install-gh").classList.toggle("hidden", !(e.curse && e.github));
   $("detail-note").textContent = needsKey ? "Needs a Wago key (Settings)." : canInstall || installedPackage ? "" : "Not installable from here: get it from its page.";
   $("detail-open").classList.toggle("hidden", !entryUrl(e));
   renderPackageActions();
@@ -672,9 +677,9 @@ async function openDetail(id, installedPackage = null) {
   } catch (_) {}
   if (seq !== detailSeq || !detailId) return;
   const parts = [localInfo];
-  if (d?.image) parts.push(`<img class="shot" src="${d.image}" alt="${e.github ? "Screenshot from the addon's README" : "The addon's CurseForge picture"}">`);
+  if (d?.image) parts.push(`<img class="shot" src="${d.image}" alt="${e.curse ? "The addon's CurseForge picture" : "Screenshot from the addon's README"}">`);
   if (d?.summary) parts.push(`<div class="readme">${esc(d.summary)}</div>`);
-  if (!d?.image && !d?.summary) parts.push(`<div class="muted">${e.github ? "No README to show." : "Nothing to show."} Its page has the details.</div>`);
+  if (!d?.image && !d?.summary) parts.push(`<div class="muted">${e.curse ? "Nothing to show." : "No README to show."} Its page has the details.</div>`);
   $("detail-body").innerHTML = parts.join("");
 }
 function closeDetail() {
@@ -700,7 +705,9 @@ function renderPackageActions() {
     return;
   }
   $("detail-install").classList.add("hidden");
+  $("detail-install-gh").classList.add("hidden");
   const canUpdate = p.source && p.status !== "no-key";
+  const other = otherSource(p);
   const versions = `Installed <b>${esc(p.installed_version || "unknown")}</b>` + (p.remote_version ? ` · Available <b>${esc(p.remote_version)}</b>` : "");
   const notes = [
     p.note ? `<div class="note ${p.status === "error" ? "err" : ""}">${esc(p.note)}</div>` : "",
@@ -712,11 +719,20 @@ function renderPackageActions() {
   box.innerHTML = `<div class="pkg-status">${badge(p)} <span class="muted">${versions}</span></div>${notes}<div class="act-list">` +
     (canUpdate && p.status === "update" && !p.pinned ? act("update", "Update", `To ${esc(p.remote_version || "the latest")}`, "primary") : "") +
     (canUpdate && !(p.status === "update" && !p.pinned) ? act("update", p.status === "update" ? "Update" : p.managed ? "Reinstall" : "Install", p.status === "update" ? "Pinned, so Update all skips it" : "Download the current release again") : "") +
+    (other ? act("switch", `Get it from ${other.name}`, other.why) : "") +
     (p.backup ? act("restore", `Go back to ${esc(p.backup.version || "the previous version")}`, "The version you had before the last update. Keeps this one, so you can switch again") : "") +
     act("pin", p.pinned ? "Allow updates" : "Pin version", p.pinned ? "Let Update all update it again" : `Hold at ${esc(p.installed_version || "this version")}; Update all skips it`) +
     act("ignore", p.ignored ? "Unignore" : "Ignore", p.ignored ? "Show it and check it for updates again" : "Hide it and stop checking for updates") +
     act("remove", "Remove", "Deletes its folders; settings in WTF are kept", "danger") +
     `</div>`;
+}
+// CurseForge first; GitHub is the opt-in other source when there's a repo.
+function otherSource(p) {
+  if (p.source?.kind === "curse" && p.github_repo)
+    return { source: { kind: "github", id: p.github_repo }, name: "GitHub", why: `Reinstall from ${esc(p.github_repo)} and take updates from there` };
+  if (p.source?.kind === "github" && p.curse_id)
+    return { source: { kind: "curse", id: p.curse_id }, name: "CurseForge", why: "Reinstall from CurseForge and take updates from there" };
+  return null;
 }
 let notesFor = null; // "key|remote version" shown or loading
 async function loadNotes(p) {
@@ -753,6 +769,12 @@ $("detail-close").onclick = closeDetail;
 $("detail").addEventListener("click", (e) => { if (e.target === $("detail")) closeDetail(); });
 document.addEventListener("keydown", (e) => { if (e.key === "Escape" && detailId) closeDetail(); });
 $("detail-open").onclick = () => { const e = detailEntry; if (e) openUrl(entryUrl(e)); };
+$("detail-install-gh").onclick = async () => {
+  const e = detailEntry;
+  if (!e?.github || busy) return;
+  closeDetail();
+  await installFrom({ kind: "github", id: e.github }, `cat:${e.id}`, e.name, "GitHub");
+};
 $("detail-install").onclick = async () => {
   const e = detailEntry;
   if (!e || busy) return;
@@ -796,6 +818,27 @@ async function installCatalog(entry, allowNonForever) {
 function btnState(id, working) {
   const b = document.querySelector(`.item[data-id="${CSS.escape(id)}"] button[data-act=install]`);
   if (b) b.innerHTML = working ? '<span class="spinner"></span> Installing' : b.textContent.trim().replace(/^Installing$/, "Install");
+}
+
+// Installs `key` from a chosen source; later updates come from it too.
+async function installFrom(source, key, name, sourceName, allowNonForever = false) {
+  setBusy(true);
+  try {
+    const p = await invoke("install_source", { source, key, allowNonForever });
+    toast(`${p.name} ${p.installed_version || ""} from ${sourceName}`);
+    await rescan(true);
+    loadCatalog(false);
+  } catch (err) {
+    if (String(err) === "NOT_FOREVER") {
+      setBusy(false);
+      const ok = await confirmModal(`<p><b>${esc(name)}</b>'s latest ${esc(sourceName)} release does not list a Forever build.</p><p class="muted">Install it anyway?</p>`, "Install anyway");
+      if (ok) return installFrom(source, key, name, sourceName, true);
+      return;
+    }
+    toast(explainError(err), true);
+  } finally {
+    setBusy(false);
+  }
 }
 
 async function installGithub(allowNonForever = false) {

@@ -165,6 +165,24 @@ assert.match(element('installed-list').innerHTML, /Discover addons/);
   assert.match(element('detail-changes').innerHTML, /CurseForge doesn't share release notes/);
   run('closeDetail()');
 
+  // Switching between CurseForge and GitHub. Source ids keep the backend's
+  // types: a CurseForge id is a number, or install_source rejects it.
+  handlers.install_source = ({ source }) => ({ ...pkg('sw'), source, status: 'ok' });
+  handlers.scan = () => [];
+  handlers.catalog_list = () => [];
+  run(`packages = [${JSON.stringify(pkg('sw', { curse_id: 257550 }))}]`);
+  await run('openDetail(null, packages[0])');
+  assert.match(element('detail-actions').innerHTML, />Get it from CurseForge</);
+  calls.length = 0;
+  await run('packageAction("switch", packages[0], null)');
+  assert.equal(JSON.stringify(calls.find(([c]) => c === 'install_source')[1].source), '{"kind":"curse","id":257550}');
+  run(`packages = [${JSON.stringify(pkg('sw', { source: { kind: 'curse', id: 257550 }, github_repo: 'me/sw' }))}]; renderPackageActions()`);
+  assert.match(element('detail-actions').innerHTML, />Get it from GitHub<span>Reinstall from me\/sw/);
+  calls.length = 0;
+  await run('packageAction("switch", packages[0], null)');
+  assert.equal(JSON.stringify(calls.find(([c]) => c === 'install_source')[1]), '{"source":{"kind":"github","id":"me/sw"},"key":"sw","allowNonForever":false}');
+  run('closeDetail(); packages = []');
+
   // Go back to the previous version.
   run(`packages = [${JSON.stringify(pkg('rb', { status: 'ok', installed_version: '2', backup: { version: '1 <old>', saved_at: 1 } }))}]`);
   await run('openDetail(null, packages[0])');
@@ -185,5 +203,5 @@ assert.match(element('installed-list').innerHTML, /Discover addons/);
   assert.deepEqual(calls.filter(([c]) => c !== 'package_icons').map(([c, a]) => c === 'set_pin' ? `set_pin ${a.pinned}` : c), ['restore_backup', 'set_pin false', 'scan'], 'Undo restores again, then unpins');
   assert.equal(run('packages[0].pinned'), false);
   run('closeDetail(); packages = []');
-  console.log('UI checks passed: counts, eligible updates, filters, search, escaping, empty states, modal focus and cancellation, addon actions in the details pane, Update all progress and summary, release notes, going back to the previous version.');
+  console.log('UI checks passed: counts, eligible updates, filters, search, escaping, empty states, modal focus and cancellation, addon actions in the details pane, Update all progress and summary, release notes, switching between CurseForge and GitHub, going back to the previous version.');
 })().catch((error) => { console.error(error); process.exitCode = 1; });

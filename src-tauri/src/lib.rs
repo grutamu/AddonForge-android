@@ -73,6 +73,8 @@ pub struct Package {
     pub source_label: String,
     pub source_url: Option<String>,
     pub curse_id: Option<u64>,
+    /// Catalogue or TOC GitHub repo, offered as the other source to switch to.
+    pub github_repo: Option<String>,
     pub catalog_id: Option<String>,
     pub notice: Option<String>,
     pub supports_forever: bool,
@@ -97,8 +99,9 @@ fn addons_dir(install: &str) -> PathBuf {
     Path::new(install).join("Interface").join("AddOns")
 }
 
-/// Recorded install source, then catalogue GitHub, Wago (with a key), WoWI,
-/// Tukui, then TOC hints, then CurseForge, then keyless Wago.
+/// Recorded install source, then CurseForge (catalogue or TOC id), catalogue
+/// GitHub, Wago (with a key), WoWI, Tukui, then TOC hints, then keyless Wago.
+/// GitHub is opt-in per addon when CurseForge has it (`github_repo`).
 fn pick_source(
     entry: Option<&CatalogEntry>,
     f: &AddonFolder,
@@ -109,6 +112,9 @@ fn pick_source(
         if let Some(s) = Source::from_parts(&m.source, &m.source_id) {
             return Some(s);
         }
+    }
+    if let Some(c) = entry.and_then(|e| e.curse).or(f.curse) {
+        return Some(Source::Curse(c));
     }
     if let Some(e) = entry {
         if let Some(r) = &e.github {
@@ -134,9 +140,6 @@ fn pick_source(
     }
     if let Some(repo) = f.website.as_deref().and_then(sources::parse_github_repo) {
         return Some(Source::Github(repo));
-    }
-    if let Some(c) = entry.and_then(|e| e.curse).or(f.curse) {
-        return Some(Source::Curse(c));
     }
     // Keyless Wago is still returned so the UI can ask for a key.
     entry.and_then(|e| e.wago.clone()).or_else(|| f.wago.clone()).map(Source::Wago)
@@ -322,6 +325,9 @@ fn build_packages(st: &AppState, cat: &Catalog, folders: &[AddonFolder]) -> Vec<
         let source = pick_source(entry, primary, has_wago, managed)
             .or_else(|| fs.iter().find_map(|f| pick_source(None, f, has_wago, None)));
         let curse_id = entry.and_then(|e| e.curse).or_else(|| fs.iter().find_map(|f| f.curse));
+        let github_repo = entry
+            .and_then(|e| e.github.clone())
+            .or_else(|| fs.iter().find_map(|f| f.website.as_deref().and_then(sources::parse_github_repo)));
         let supports_forever = fs.iter().any(|f| f.supports_forever());
 
         // Required dependencies not on disk.
@@ -372,6 +378,7 @@ fn build_packages(st: &AppState, cat: &Catalog, folders: &[AddonFolder]) -> Vec<
                 .or_else(|| entry.and_then(|e| e.url.clone())),
             source,
             curse_id,
+            github_repo,
             catalog_id: entry.map(|e| e.id.clone()),
             notice: entry.and_then(|e| e.notice.clone()).filter(|n| !n.trim().is_empty()),
             supports_forever,
@@ -728,43 +735,18 @@ async fn install_from(
         logi!("{key}: kept {} for Roll back", prev.and_then(|p| p.installed_version.as_deref()).unwrap_or("the previous version"));
     }
     let folders = placed.folders;
-    let mut rec = Installed {
+    let rec = Installed {
         source: src.kind().into(),
         source_id: src.id(),
         version: remote.version.clone(),
         folders,
         installed_at: state::now_secs(),
     };
-    // Switch to GitHub when the TOC names a repo with a Forever build.
-    if matches!(src, Source::Curse(_)) {
-        if let Some(repo) = github_from_toc(&install, &rec.folders).await {
-            let opts = ResolveOpts { asset_hint: None, wago_key: None, prerelease: st.allow_prerelease };
-            match sources::resolve(&app.client, &Source::Github(repo.clone()), opts).await {
-                Ok(r) if r.forever != Some(false) => {
-                    logi!("{key}: updates from GitHub {repo} from now on");
-                    rec.source = "github".into();
-                    rec.source_id = repo;
-                }
-                _ => {}
-            }
-        }
-    }
     let mut st = app.state.lock().await;
     st.installed.insert(key.to_string(), rec.clone());
     st.save().map_err(err)?;
     logi!("installed {key} {} ({} folders)", rec.version, rec.folders.len());
     Ok(rec)
-}
-
-/// GitHub repo from the folders' TOC `X-Website`.
-async fn github_from_toc(install: &str, folders: &[String]) -> Option<String> {
-    let install = install.to_string();
-    let names: Vec<String> = folders.iter().map(|f| f.to_ascii_lowercase()).collect();
-    let scanned = tokio::task::spawn_blocking(move || wow::scan_addons(Path::new(&install))).await.ok()?;
-    scanned
-        .iter()
-        .filter(|f| names.contains(&f.folder.to_ascii_lowercase()))
-        .find_map(|f| f.website.as_deref().and_then(sources::parse_github_repo))
 }
 
 /// Falls back to CurseForge when GitHub has no Forever build.
@@ -909,14 +891,14 @@ async fn catalog_icons(app: State<'_, Shared>, ids: Vec<String>) -> Result<HashM
     Ok(out)
 }
 
-/// Description and preview image; GitHub and CurseForge only.
+/// Description and preview image: CurseForge first, else the GitHub README.
 #[tauri::command]
 async fn addon_details(app: State<'_, Shared>, id: String) -> Result<icons::Details, String> {
     let cat = catalog_cached(&app).await;
     let Some(e) = cat.addons.iter().find(|e| e.id == id) else { return Ok(icons::Details::default()) };
-    match (&e.github, e.curse) {
-        (Some(repo), _) => Ok(icons::github_details(&app.client, repo).await),
-        (None, Some(id)) => Ok(icons::curse_details(&app.client, id).await),
+    match (e.curse, &e.github) {
+        (Some(id), _) => Ok(icons::curse_details(&app.client, id).await),
+        (None, Some(repo)) => Ok(icons::github_details(&app.client, repo).await),
         _ => Ok(icons::Details::default()),
     }
 }
@@ -936,12 +918,13 @@ async fn install_catalog(
         .ok_or_else(|| "Not in the catalogue".to_string())?;
     let st = app.state.lock().await.clone();
     let has_wago = st.has_wago_key();
-    let src = pick_source(Some(&e), &AddonFolder::default(), has_wago, None)
+    let key = format!("cat:{}", e.id);
+    // A reinstall keeps the source the user chose.
+    let src = pick_source(Some(&e), &AddonFolder::default(), has_wago, st.installed.get(&key))
         .ok_or_else(|| "This catalogue entry has no downloadable source".to_string())?;
     if matches!(src, Source::Wago(_)) && !has_wago {
         return Err("This addon is on Wago: add your free Wago API key in Settings first".into());
     }
-    let key = format!("cat:{}", e.id);
     let prev = on_disk(&app, &key).await;
     install_or_curse(&app, &key, &src, e.curse, e.asset_hint.as_deref(), allow_non_forever.unwrap_or(false), prev.as_ref()).await?;
     refreshed(&app, &key).await
@@ -1429,36 +1412,44 @@ mod tests {
     }
 
     #[test]
-    fn curseforge_is_the_last_resort() {
+    fn curseforge_comes_first_and_github_is_offered_beside_it() {
         let mut st = AppState::default();
         let cat: Catalog = serde_json::from_str(
-            r#"{"addons":[{"id":"details","name":"Details","curse":61284,"folders":["Details"]},{"id":"both","name":"Both","github":"a/b","curse":1,"folders":["Both"]},{"id":"wago","name":"W","wago":"xyz","curse":2,"folders":["W"]},{"id":"wowi","name":"I","wowi":5,"curse":3,"folders":["I"]},{"id":"tukui","name":"T","tukui":"elvui","curse":4,"folders":["T"]}]}"#,
+            r#"{"addons":[{"id":"details","name":"Details","curse":61284,"folders":["Details"]},{"id":"both","name":"Both","github":"a/b","curse":1,"wago":"q","folders":["Both"]},{"id":"wago","name":"W","wago":"xyz","folders":["W"]},{"id":"wowi","name":"I","wowi":5,"folders":["I"]},{"id":"tukui","name":"T","tukui":"elvui","folders":["T"]}]}"#,
         )
         .unwrap();
         let mut toc_only = folder("Tocky", &[], None);
         toc_only.curse = Some(77);
-        let folders = vec![folder("Details", &[], None), folder("Both", &[], None), folder("W", &[], None), folder("I", &[], None), folder("T", &[], None), toc_only];
+        toc_only.website = Some("https://github.com/me/tocky".into());
+        let mut gh_only = folder("Hubby", &[], None);
+        gh_only.website = Some("https://github.com/me/hubby".into());
+        let folders = vec![folder("Details", &[], None), folder("Both", &[], None), folder("W", &[], None), folder("I", &[], None), folder("T", &[], None), toc_only, gh_only];
         let by_name = |pkgs: &[Package], n: &str| pkgs.iter().find(|p| p.name == n).unwrap().clone();
 
+        st.wago_key = Some("k".into());
         let pkgs = build_packages(&st, &cat, &folders);
         let details = by_name(&pkgs, "Details");
         assert_eq!(details.source, Some(Source::Curse(61284)));
         assert_eq!(details.status, "unknown");
         assert_eq!(details.source_label, "CurseForge");
         assert_eq!(details.source_url.as_deref(), Some("https://www.curseforge.com/projects/61284"));
-        assert_eq!(by_name(&pkgs, "Tocky").source, Some(Source::Curse(77)));
-        assert_eq!(by_name(&pkgs, "Both").source, Some(Source::Github("a/b".into())));
+        assert_eq!(details.github_repo, None);
+        let both = by_name(&pkgs, "Both");
+        assert_eq!(both.source, Some(Source::Curse(1)), "CurseForge beats GitHub and keyed Wago");
+        assert_eq!(both.github_repo.as_deref(), Some("a/b"));
+        let tocky = by_name(&pkgs, "Tocky");
+        assert_eq!(tocky.source, Some(Source::Curse(77)), "a TOC CurseForge id beats its TOC GitHub link");
+        assert_eq!(tocky.github_repo.as_deref(), Some("me/tocky"));
+        assert_eq!(by_name(&pkgs, "Hubby").source, Some(Source::Github("me/hubby".into())), "GitHub-only addons still update");
         assert_eq!(by_name(&pkgs, "I").source, Some(Source::Wowi(5)));
         assert_eq!(by_name(&pkgs, "T").source, Some(Source::Tukui("elvui".into())));
-        assert_eq!(by_name(&pkgs, "W").source, Some(Source::Curse(2)));
-        st.wago_key = Some("k".into());
-        assert_eq!(by_name(&build_packages(&st, &cat, &folders), "W").source, Some(Source::Wago("xyz".into())));
+        assert_eq!(by_name(&pkgs, "W").source, Some(Source::Wago("xyz".into())));
 
         st.installed.insert(
             "cat:both".into(),
-            Installed { source: "curse".into(), source_id: "1".into(), version: "1".into(), folders: vec!["Both".into()], installed_at: 0 },
+            Installed { source: "github".into(), source_id: "a/b".into(), version: "1".into(), folders: vec!["Both".into()], installed_at: 0 },
         );
-        assert_eq!(by_name(&build_packages(&st, &cat, &folders), "Both").source, Some(Source::Curse(1)));
+        assert_eq!(by_name(&build_packages(&st, &cat, &folders), "Both").source, Some(Source::Github("a/b".into())), "switched to GitHub stays on GitHub");
     }
 
     #[test]

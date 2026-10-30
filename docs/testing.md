@@ -37,7 +37,7 @@ the security gate again before it builds.
 | Dependencies | `missing_dependencies_are_reported_and_matched_to_catalogue` | Missing required deps are listed and matched to catalogue entries |
 | Catalogue | `catalog::converts_forever_curse_entries_and_links_unique_github_repos` | instawow's list is filtered to Forever CurseForge entries, and a GitHub repo is attached only when exactly one claims the entry |
 | Versions | `sources::bundle_release_names_every_folder_version`, `bundle_addon_shows_its_own_version_and_matches_the_bundle_release` | A bundle release (Questie `v12.1.0+v1.0.6`) is up to date when it names every folder's version |
-| CurseForge | `sources::curseforge::picks_newest_forever_release_before_betas`, `sources::curseforge::alpha_only_when_nothing_else_and_flags_non_forever`, `sources::curseforge::cdn_url_splits_the_id_and_encodes_the_name`, `curseforge_is_the_last_resort`, `state::tests::old_state_with_removed_fields_still_loads` | The cfwidget file pick and download URL, CurseForge is used only when no other source exists (but beats Wago without a key), and a state.json with the old `curse_unofficial` field still loads |
+| CurseForge | `sources::curseforge::picks_newest_forever_release_before_betas`, `sources::curseforge::alpha_only_when_nothing_else_and_flags_non_forever`, `sources::curseforge::cdn_url_splits_the_id_and_encodes_the_name`, `curseforge_comes_first_and_github_is_offered_beside_it`, `state::tests::old_state_with_removed_fields_still_loads` | The cfwidget file pick and download URL, CurseForge is the first choice (GitHub-only addons still use GitHub; a GitHub repo is offered as the switch, and a chosen GitHub source sticks), and a state.json with the old `curse_unofficial` field still loads |
 | Install safety | `install::safety_scan_refuses_executables` | A zip with an executable (extension or `MZ` header) or a symlink is refused |
 | Install safety | `install::removing_a_folder_never_follows_a_link` | Removing an addon folder never deletes through a link (SavedVariables stay safe) |
 | Go back | `install::an_update_keeps_the_old_version_and_restore_swaps_them`, `install::a_failed_restore_puts_everything_back` | An update that changes the version keeps the replaced folders in `.addonforge-backup/`; going back swaps them in (removing folders the old version didn't have) and keeps the newer one, so a second go-back undoes the first; a backup missing a folder is unusable, and a go-back that fails halfway undoes every move |
@@ -57,7 +57,7 @@ escaping, empty states, modal focus and cancel, the addon actions in the
 details pane, Update all (one addon at a time, the "no Forever build"
 question asked once at the end, accepted or declined, and a summary that
 counts updated, failed and skipped), release notes in the details (escaped,
-and CurseForge's "no notes" line), and going back to the previous version
+and CurseForge's "no notes" line), switching an addon between CurseForge and GitHub (CurseForge ids sent as numbers), and going back to the previous version
 (it pins when that is older than the latest, and Undo unpins). It also fails if any `$("id")` in `ui/*.js` is missing from
 `index.html`, because the fake DOM would otherwise invent the element. Code
 that needs a real browser (MutationObserver, navigator, window listeners)
