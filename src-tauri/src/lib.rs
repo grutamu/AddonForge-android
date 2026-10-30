@@ -576,16 +576,32 @@ async fn get_settings(app: State<'_, Shared>) -> Result<Settings, String> {
     })
 }
 
+/// Pick a Forever install to adopt automatically. Returns the path to switch to
+/// when the recorded selection is missing or no longer a Forever install (e.g. a
+/// leftover `_classic_beta_` selection after the live client shipped) and a
+/// Forever install is available; `None` when the current selection is already
+/// Forever or nothing Forever was found.
+fn install_to_adopt(current_is_forever: bool, found: &[WowInstall]) -> Option<String> {
+    if current_is_forever {
+        return None;
+    }
+    found.iter().find(|i| i.flavor == "forever").map(|i| i.path.clone())
+}
+
 #[tauri::command]
 async fn find_installs(app: State<'_, Shared>) -> Result<Vec<WowInstall>, String> {
     let found = tokio::task::spawn_blocking(wow::find_installs).await.map_err(err)?;
     let mut st = app.state.lock().await;
-    if st.install_path.is_none() {
-        if let Some(f) = found.iter().find(|i| i.flavor == "forever") {
-            st.install_path = Some(f.path.clone());
-            st.save().map_err(err)?;
-            logi!("auto-selected install {}", f.path);
-        }
+    let current_is_forever = st
+        .install_path
+        .as_deref()
+        .and_then(|p| wow::describe_install(Path::new(p)))
+        .map(|i| i.flavor == "forever")
+        .unwrap_or(false);
+    if let Some(path) = install_to_adopt(current_is_forever, &found) {
+        logi!("adopting Forever install {} (was {:?})", path, st.install_path);
+        st.install_path = Some(path);
+        st.save().map_err(err)?;
     }
     Ok(found)
 }
@@ -594,7 +610,7 @@ async fn find_installs(app: State<'_, Shared>) -> Result<Vec<WowInstall>, String
 async fn set_install_path(app: State<'_, Shared>, path: String) -> Result<WowInstall, String> {
     let p = PathBuf::from(path.trim());
     let info = wow::describe_install(&p)
-        .ok_or_else(|| "That folder doesn't look like a WoW product folder (expected e.g. .../_classic_beta_ with Interface/AddOns inside)".to_string())?;
+        .ok_or_else(|| "That folder doesn't look like a WoW product folder (expected e.g. .../_forever_ with Interface/AddOns inside)".to_string())?;
     let mut st = app.state.lock().await;
     st.install_path = Some(info.path.clone());
     st.save().map_err(err)?;
@@ -1239,7 +1255,24 @@ fn make_app() -> Shared {
         .connect_timeout(std::time::Duration::from_secs(15))
         .build()
         .expect("http client");
-    let st = AppState::load();
+    let mut st = AppState::load();
+    // Migrate a leftover beta (or stale) selection to the live Forever client on
+    // startup, so an upgrading beta user isn't left managing an unsupported
+    // folder. Only scan storage when the current selection isn't already
+    // Forever, keeping the common case a no-op.
+    let current_is_forever = st
+        .install_path
+        .as_deref()
+        .and_then(|p| wow::describe_install(Path::new(p)))
+        .map(|i| i.flavor == "forever")
+        .unwrap_or(false);
+    if !current_is_forever {
+        if let Some(path) = install_to_adopt(false, &wow::find_installs()) {
+            logi!("adopting Forever install {} (was {:?})", path, st.install_path);
+            st.install_path = Some(path);
+            let _ = st.save();
+        }
+    }
     if let Some(p) = &st.install_path {
         install::clean_tmp(&addons_dir(p));
     }
@@ -1306,6 +1339,28 @@ mod tests {
             forever_interface: true,
             ..Default::default()
         }
+    }
+
+    fn install(path: &str, flavor: &str) -> WowInstall {
+        WowInstall {
+            path: path.into(),
+            product: if flavor == "forever" { "wowf".into() } else { "wow".into() },
+            flavor: flavor.into(),
+            label: flavor.into(),
+        }
+    }
+
+    #[test]
+    fn adopts_a_forever_install_only_when_the_current_one_is_not_forever() {
+        let live = install("/g/_forever_", "forever");
+        let beta = install("/g/_classic_beta_", "other");
+        let found = vec![beta.clone(), live.clone()];
+        // No selection yet, or a leftover beta selection: adopt the live client.
+        assert_eq!(install_to_adopt(false, &found).as_deref(), Some("/g/_forever_"));
+        // Already on a Forever install: leave it alone.
+        assert_eq!(install_to_adopt(true, &found), None);
+        // Nothing Forever around (only the dropped beta): nothing to adopt.
+        assert_eq!(install_to_adopt(false, &[beta]), None);
     }
 
     #[test]

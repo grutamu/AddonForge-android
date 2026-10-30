@@ -22,7 +22,7 @@ pub struct Installed {
 
 #[derive(Serialize, Deserialize, Clone, Debug, Default)]
 pub struct AppState {
-    /// Product folder we manage, e.g. `/storage/emulated/0/WoW Forever/_classic_beta_`.
+    /// Product folder we manage, e.g. `/storage/emulated/0/WoW Forever/_forever_`.
     #[serde(default)]
     pub install_path: Option<String>,
     /// Optional user-supplied Wago Addons API key (stored locally only).

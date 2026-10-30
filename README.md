@@ -31,7 +31,7 @@ AddonForge only ever writes inside `Interface/AddOns`.
 
 ### 3. Let it find your game
 
-AddonForge looks for WoW: Forever on its own and usually finds it straight away, for example in `Download/World of Warcraft`. If it can't, press **Choose folder…** and pick the folder you copied the game into (the one that holds `_classic_beta_`).
+AddonForge looks for WoW: Forever on its own and usually finds it straight away, for example in `Download/World of Warcraft`. If it can't, press **Choose folder…** and pick the folder you copied the game into (the one that holds `_forever_`).
 
 That's all. Your addons appear under **My addons**.
 
@@ -130,7 +130,7 @@ When a new version of AddonForge is out, a line appears at the top of the app. P
 ## Questions
 
 **It can't find my game.**
-Go to **Settings → WoW install → Choose folder…** and pick the folder you copied the game into, or `_classic_beta_` inside it.
+Go to **Settings → WoW install → Choose folder…** and pick the folder you copied the game into, or `_forever_` inside it.
 
 **An addon says "No source".**
 AddonForge couldn't work out where that addon is published, often because you installed it by hand from somewhere it doesn't know about. The addon still works, but AddonForge can't update it. If it's on GitHub, you can reinstall it with **Install from GitHub** and AddonForge will keep it updated from then on.

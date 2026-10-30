@@ -847,7 +847,7 @@ async function detect() {
   try {
     const found = await invoke("find_installs");
     if (!found.length) {
-      $("detected").innerHTML = `<span class="muted">Nothing found in the usual places. Use Choose folder… to pick the <code>_classic_beta_</code> folder yourself.</span>`;
+      $("detected").innerHTML = `<span class="muted">Nothing found in the usual places. Use Choose folder… to pick the <code>_forever_</code> folder yourself.</span>`;
       return;
     }
     $("detected").innerHTML = found
@@ -896,13 +896,13 @@ function ask(method) {
     A[method](id);
   });
 }
-// A picked folder may be the game folder or the _classic_beta_ inside it.
+// A picked folder may be the game folder or the _forever_ inside it.
 async function setGameFolder(path) {
   try {
     return await invoke("set_install_path", { path });
   } catch (err) {
     try {
-      return await invoke("set_install_path", { path: `${path.replace(/\/$/, "")}/_classic_beta_` });
+      return await invoke("set_install_path", { path: `${path.replace(/\/$/, "")}/_forever_` });
     } catch (_) {
       throw err;
     }

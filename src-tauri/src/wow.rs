@@ -14,9 +14,9 @@ pub const FOREVER_TOC_SUFFIXES: &[&str] = &["_Forever", "-Forever", "_Camelot", 
 
 #[derive(Serialize, Clone, Debug)]
 pub struct WowInstall {
-    /// Absolute path of the product folder, e.g. `/storage/emulated/0/WoW Forever/_classic_beta_`.
+    /// Absolute path of the product folder, e.g. `/storage/emulated/0/WoW Forever/_forever_`.
     pub path: String,
-    /// Product code from `.flavor.info`, e.g. `wow_classic_beta`.
+    /// Product code from `.flavor.info`, e.g. `wowf`.
     pub product: String,
     /// Our flavour id: `forever` or `other`.
     pub flavor: String,
@@ -27,7 +27,7 @@ pub struct WowInstall {
 /// Map Blizzard product codes to the flavour we support.
 pub fn product_flavor(product: &str) -> (&'static str, String) {
     match product {
-        "wow_classic_beta" => ("forever", "WoW: Forever (beta)".into()),
+        "wowf" => ("forever", "WoW: Forever".into()),
         "wow" => ("other", "Retail".into()),
         "wow_classic_era" => ("other", "Classic Era".into()),
         "wow_anniversary" => ("other", "Anniversary".into()),
@@ -38,7 +38,7 @@ pub fn product_flavor(product: &str) -> (&'static str, String) {
 
 fn read_flavor_info(product_dir: &Path) -> Option<String> {
     let text = fs::read_to_string(product_dir.join(".flavor.info")).ok()?;
-    // Format: "Product Flavor!STRING:0\nwow_classic_beta\n"
+    // Format: "Product Flavor!STRING:0\nwowf\n"
     text.lines().nth(1).map(|s| s.trim().to_string()).filter(|s| !s.is_empty())
 }
 
@@ -54,12 +54,18 @@ pub fn describe_install(product_dir: &Path) -> Option<WowInstall> {
         }
     }
     let product = read_flavor_info(product_dir).unwrap_or_else(|| {
-        // Fall back to the folder name, e.g. "_classic_beta_" -> "classic_beta".
+        // No `.flavor.info` (e.g. a copied install): fall back to the folder name.
+        // The Forever client lives in `_forever_`; map it to its real product code
+        // so it's still recognised as Forever without the flavour file.
         let name = product_dir
             .file_name()
             .map(|s| s.to_string_lossy().trim_matches('_').to_string())
             .unwrap_or_default();
-        format!("wow_{name}")
+        if name == "forever" {
+            "wowf".to_string()
+        } else {
+            format!("wow_{name}")
+        }
     });
     let (flavor, label) = product_flavor(&product);
     Some(WowInstall {
@@ -108,7 +114,7 @@ fn find_installs_in(volumes: &[PathBuf]) -> Vec<WowInstall> {
             let Ok(rd) = fs::read_dir(&base) else { continue };
             for e in rd.flatten() {
                 let root = e.path();
-                if root.join(".build.info").is_file() || root.join("_classic_beta_").is_dir() {
+                if root.join(".build.info").is_file() || root.join("_forever_").is_dir() {
                     scan_root(&root, &mut found);
                 }
             }
@@ -362,12 +368,12 @@ mod tests {
         let vol = std::env::temp_dir().join(format!("af-vol-{}", std::process::id()));
         let _ = std::fs::remove_dir_all(&vol);
         // The launcher's default folder, marked by .build.info.
-        let a = vol.join("WoW Forever").join("_classic_beta_");
+        let a = vol.join("WoW Forever").join("_forever_");
         std::fs::create_dir_all(a.join("Interface").join("AddOns")).unwrap();
         std::fs::write(vol.join("WoW Forever").join(".build.info"), "").unwrap();
-        std::fs::write(a.join(".flavor.info"), "Product Flavor!STRING:0\nwow_classic_beta\n").unwrap();
-        // Copied into Download without .build.info, found by its _classic_beta_.
-        let b = vol.join("Download").join("World of Warcraft").join("_classic_beta_");
+        std::fs::write(a.join(".flavor.info"), "Product Flavor!STRING:0\nwowf\n").unwrap();
+        // Copied into Download without .build.info, found by its _forever_.
+        let b = vol.join("Download").join("World of Warcraft").join("_forever_");
         std::fs::create_dir_all(b.join("WTF")).unwrap();
         // Not a game root: neither marker, so its _x_ folder is never looked at.
         std::fs::create_dir_all(vol.join("Download").join("Photos").join("_x_").join("WTF")).unwrap();

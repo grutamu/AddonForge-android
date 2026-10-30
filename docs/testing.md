@@ -26,11 +26,12 @@ every pull request and every push to `android` (`.github/workflows/build.yml`;
 Markdown-only changes skip it). The release workflow runs the UI checks and
 the security gate again before it builds.
 
-### `cargo test`: 29 tests
+### `cargo test`: 30 tests
 
 | Area | Test | What it proves |
 |---|---|---|
-| Install discovery | `wow::finds_game_roots_on_a_volume_and_in_download` | The Android storage scan finds a game root (`.build.info` + `_classic_beta_`) at a volume's top level and in its Download folder |
+| Install discovery | `wow::finds_game_roots_on_a_volume_and_in_download` | The Android storage scan finds a game root (`.build.info` + `_forever_`) at a volume's top level and in its Download folder |
+| Install migration | `adopts_a_forever_install_only_when_the_current_one_is_not_forever` | The live Forever client is adopted when the recorded selection is missing or no longer Forever (e.g. a leftover beta), and a current Forever selection is left alone |
 | TOC parsing | `wow::strips_colour_codes` | `\|cffXXXXXX` colour codes are stripped from titles |
 | Grouping | `managed_folders_stay_with_their_package`, `modules_group_under_their_core_without_catalogue`, `managed_source_wins_and_github_key_is_used`, `folder_matching_prefers_the_addon_named_after_the_folder` | Folders group into the right addon (BigWigs/DBM modules under their core); a recorded install source wins; a shared folder goes to the addon named after it |
 | Dependencies | `missing_dependencies_are_reported_and_matched_to_catalogue` | Missing required deps are listed and matched to catalogue entries |
@@ -137,8 +138,8 @@ without it.
 No automated check covers these, so go through them by hand on the device
 when the related code changes. The ones marked **writes** change the real
 AddOns folder. Before trying them, back up
-`<game folder>/_classic_beta_/Interface/AddOns`, e.g.
-`adb pull "/storage/emulated/0/Download/World of Warcraft/_classic_beta_/Interface/AddOns" ./addons-backup`.
+`<game folder>/_forever_/Interface/AddOns`, e.g.
+`adb pull "/storage/emulated/0/Download/World of Warcraft/_forever_/Interface/AddOns" ./addons-backup`.
 
 | Check | How |
 |---|---|
@@ -208,3 +209,16 @@ notes cut at the installed version. On the Thor (top screen), the smoke
 test passed with no crash. No addon had an update waiting, and nothing was
 installed or updated, so the progress panel, What's new and Go back were
 not seen on the device.
+
+**2026-10-29, live WoW: Forever client.** The beta ended; the live client
+ships in a `_forever_` folder with `.flavor.info` product `wowf` (confirmed
+by reading it off the Thor over wireless adb). Detection, the folder-picker
+fallback, and the discovery test were moved from the beta's
+`_classic_beta_`/`wow_classic_beta` to the live strings, and a startup
+migration adopts the live install when the recorded selection is a leftover
+beta. Host checks: 30 Rust tests, the UI checks and the security gate all
+passed. On the Thor, a release APK (versionCode 2026102900) was installed
+over the beta-configured app and smoke-tested: it auto-migrated the saved
+`_classic_beta_` selection to `_forever_`, showed the (empty) live AddOns
+folder with "No addons found", and walked every tab with the pad with no
+crash. Nothing was installed or removed.
