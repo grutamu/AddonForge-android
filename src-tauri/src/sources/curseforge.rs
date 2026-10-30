@@ -56,6 +56,14 @@ pub async fn details(client: &reqwest::Client, id: u64) -> Option<(String, Strin
     Some((p.summary, html_text(&p.description), p.thumbnail))
 }
 
+/// Just the project's logo URL, for the Find-addons row icon. A cold project
+/// comes back 202 with a non-project body, which parses to None; we retry it
+/// next time.
+pub async fn thumbnail(client: &reqwest::Client, id: u64) -> Option<String> {
+    let p: Project = client.get(format!("https://api.cfwidget.com/{id}")).send().await.ok()?.error_for_status().ok()?.json().await.ok()?;
+    p.thumbnail
+}
+
 fn html_text(html: &str) -> String {
     let mut out = String::new();
     let mut in_tag = false;

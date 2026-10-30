@@ -881,6 +881,34 @@ async fn package_icons(app: State<'_, Shared>, keys: Vec<String>) -> Result<Hash
     Ok(out)
 }
 
+/// Logos for Find-addons rows: the CurseForge project logo, fetched lazily as
+/// rows come into view and cached on disk. Entries with no CurseForge id get
+/// none (the UI keeps its letter tile).
+#[tauri::command]
+async fn catalog_icons(app: State<'_, Shared>, ids: Vec<String>) -> Result<HashMap<String, String>, String> {
+    use futures_util::stream::StreamExt;
+    let cat = catalog_cached(&app).await;
+    let jobs: Vec<(String, u64)> = ids
+        .into_iter()
+        .filter_map(|id| cat.addons.iter().find(|e| e.id == id).and_then(|e| e.curse).map(|c| (id, c)))
+        .collect();
+    let app: &App = &app;
+    let out = futures_util::stream::iter(jobs)
+        .map(|(id, curse)| {
+            let client = app.client.clone();
+            async move {
+                icon_cached(app, format!("curse-icon:{curse}"), async move { icons::curse_icon(&client, curse).await })
+                    .await
+                    .map(|i| (id, i))
+            }
+        })
+        .buffer_unordered(6)
+        .filter_map(|x| async move { x })
+        .collect()
+        .await;
+    Ok(out)
+}
+
 /// Description and preview image; GitHub and CurseForge only.
 #[tauri::command]
 async fn addon_details(app: State<'_, Shared>, id: String) -> Result<icons::Details, String> {
@@ -1268,6 +1296,7 @@ pub fn run() {
             update_package,
             catalog_list,
             package_icons,
+            catalog_icons,
             addon_details,
             install_catalog,
             install_source,

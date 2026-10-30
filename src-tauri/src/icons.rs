@@ -86,6 +86,29 @@ pub fn local_icon(install: &Path, texture: &str) -> Option<String> {
     Some(to_data_url(&png))
 }
 
+/// The CurseForge project logo for a Find-addons row, as a 32px PNG data URL.
+/// The logo URL comes from cfwidget; it's the author's own artwork, not a
+/// guess, so it's safe where scraped avatars were not. Cached on disk by id
+/// (a logo rarely changes); `encode_png` rejects banner-shaped art.
+pub async fn curse_icon(client: &reqwest::Client, id: u64) -> Option<String> {
+    let cache = cache_dir().join(format!("{}.png", key(&format!("curse-icon|{id}"))));
+    if let Ok(png) = fs::read(&cache) {
+        return Some(to_data_url(&png));
+    }
+    let url = crate::sources::curseforge::thumbnail(client, id).await?;
+    if !allowed_image_host(&url) {
+        return None;
+    }
+    let bytes = client.get(&url).timeout(Duration::from_secs(20)).send().await.ok()?.error_for_status().ok()?.bytes().await.ok()?;
+    if bytes.len() > 8 * 1024 * 1024 {
+        return None;
+    }
+    let png = encode_png(image::load_from_memory(&bytes).ok()?).ok()?;
+    let _ = fs::create_dir_all(cache_dir());
+    let _ = fs::write(&cache, &png);
+    Some(to_data_url(&png))
+}
+
 // ---------------------------------------------------------------- addon details
 
 const PREVIEW_W: u32 = 720;

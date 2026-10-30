@@ -30,7 +30,7 @@ async function loadIcons(kind, ids) {
   if (!want.length) return;
   let got;
   try {
-    got = await invoke("package_icons", { keys: want });
+    got = kind === "c" ? await invoke("catalog_icons", { ids: want }) : await invoke("package_icons", { keys: want });
   } catch (_) {
     return;
   }
@@ -39,6 +39,29 @@ async function loadIcons(kind, ids) {
   for (const [id, src] of Object.entries(got)) {
     document.querySelectorAll(`[data-ico="${CSS.escape(kind + ":" + id)}"]`).forEach((el) => { el.innerHTML = `<img src="${src}" alt="">`; });
   }
+}
+// Catalogue logos are fetched one row at a time, as the row scrolls into view,
+// so cfwidget isn't hit for the whole list at once and icons pop in as you go.
+let catIconObserver = null;
+function observeCatalogIcons() {
+  if (typeof IntersectionObserver === "undefined") return; // fake DOM in tests, non-browser
+  if (!catIconObserver) {
+    catIconObserver = new IntersectionObserver((entries) => {
+      const want = [];
+      for (const e of entries) {
+        if (!e.isIntersecting) continue;
+        catIconObserver.unobserve(e.target);
+        const k = e.target.dataset.ico || "";
+        if (k.startsWith("c:")) want.push(k.slice(2));
+      }
+      if (want.length) loadIcons("c", want);
+    }, { rootMargin: "200px 0px" });
+  } else {
+    catIconObserver.disconnect();
+  }
+  document.querySelectorAll('#browse-list .ico[data-ico^="c:"]').forEach((el) => {
+    if (!icons.has(el.dataset.ico)) catIconObserver.observe(el);
+  });
 }
 function fmtCount(n) {
   if (n == null) return "";
@@ -566,6 +589,7 @@ function renderCatalog() {
         .join("") + (all.length > rows.length ? `<div class="empty">Showing ${rows.length} of ${all.length}. Search to find the rest.</div>` : "")
     : `<div class="empty">Nothing matches.</div>`;
   setBusy(busy);
+  observeCatalogIcons();
 }
 
 async function loadCatalog(refresh) {
@@ -620,6 +644,7 @@ async function openDetail(id, installedPackage = null) {
   const src = icons.get(iconKey);
   $("detail-icon").innerHTML = src ? `<img src="${src}" alt="">` : esc(e.name.replace(/^[^a-z0-9]+/i, "").charAt(0).toUpperCase() || "?");
   $("detail-icon").dataset.ico = iconKey; // for loadIcons
+  if (id && !installedPackage) loadIcons("c", [id]); // the catalogue logo for the detail tile
   $("detail-name").textContent = e.name;
   const bits = [e.category, installedPackage?.source_label || (entry ? sourceLabel(e) : "No update source")];
   if (installedPackage?.installed_version) bits.push(`Installed: ${installedPackage.installed_version}`);
